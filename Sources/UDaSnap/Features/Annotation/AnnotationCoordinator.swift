@@ -6,7 +6,8 @@ import UDaSnapCore
 final class AnnotationCoordinator {
 
     private let pinStore: PinStore
-    private var editor: AnnotationEditorWindowController?
+    private var editors: [AnnotationEditorWindowController] = []
+    private var nextCascadeIndex = 0
     var onSaved: ((Bool) -> Void)?
 
     init(pinStore: PinStore) {
@@ -19,20 +20,18 @@ final class AnnotationCoordinator {
         screen: NSScreen,
         pinOrigin: CGPoint
     ) {
-        if let editor {
-            NSApp.activate(ignoringOtherApps: true)
-            editor.show()
-            return
+        if editors.isEmpty {
+            nextCascadeIndex = 0
         }
         let document = AnnotationDocument(image: image, contentScale: contentScale)
-        let editor = AnnotationEditorWindowController(document: document, screen: screen)
-        self.editor = editor
+        let cascadeIndex = nextCascadeIndex
+        nextCascadeIndex += 1
+        let editor = AnnotationEditorWindowController(
+            document: document, screen: screen, cascadeIndex: cascadeIndex)
+        editors.append(editor)
         editor.onFinish = { [weak self, weak editor] action in
-            guard let self else { return }
-            defer {
-                self.editor = nil
-                _ = editor
-            }
+            guard let self, let editor else { return }
+            self.remove(editor)
             switch action {
             case .cancel:
                 break
@@ -46,9 +45,16 @@ final class AnnotationCoordinator {
     }
 
     func dismiss() {
-        guard let editor else { return }
-        self.editor = nil
-        editor.close()
+        let openEditors = editors
+        editors.removeAll()
+        for editor in openEditors {
+            editor.onFinish = nil
+            editor.close()
+        }
+    }
+
+    private func remove(_ editor: AnnotationEditorWindowController) {
+        editors.removeAll { $0 === editor }
     }
 
     private func commit(_ image: CGImage, pinOrigin: CGPoint, screen: NSScreen, makePin: Bool) {

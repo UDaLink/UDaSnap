@@ -14,6 +14,7 @@ final class AnnotationEditorWindowController: NSWindowController, NSWindowDelega
     var onFinish: ((FinishAction) -> Void)?
 
     private let screen: NSScreen
+    private let cascadeIndex: Int
     private let canvas: AnnotationCanvasView
     private let toolbar = AnnotationToolbarView()
     private let scrollView = NSScrollView()
@@ -22,8 +23,9 @@ final class AnnotationEditorWindowController: NSWindowController, NSWindowDelega
     private var isFinishing = false
     private var didSizeInitialWindow = false
 
-    init(document: AnnotationDocument, screen: NSScreen) {
+    init(document: AnnotationDocument, screen: NSScreen, cascadeIndex: Int = 0) {
         self.screen = screen
+        self.cascadeIndex = cascadeIndex
         self.canvas = AnnotationCanvasView(document: document)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
@@ -31,7 +33,7 @@ final class AnnotationEditorWindowController: NSWindowController, NSWindowDelega
             backing: .buffered,
             defer: false
         )
-        window.title = "标注截图"
+        window.title = cascadeIndex == 0 ? "标注截图" : "标注截图 \(cascadeIndex + 1)"
         window.isReleasedWhenClosed = false
         window.level = .floating
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
@@ -221,9 +223,13 @@ final class AnnotationEditorWindowController: NSWindowController, NSWindowDelega
         let windowHeight = max(430, min(visible.height * 0.92, pixelHeight * zoom + toolbarHeight + 24))
         var frame = window.frame
         frame.size = NSSize(width: windowWidth, height: windowHeight)
+        let stagger = CGFloat(cascadeIndex % 6) * 28
+        let inset = visible.insetBy(dx: 12, dy: 12)
+        let maxX = max(inset.minX, inset.maxX - frame.width)
+        let maxY = max(inset.minY, inset.maxY - frame.height)
         frame.origin = NSPoint(
-            x: visible.midX - frame.width / 2,
-            y: visible.midY - frame.height / 2)
+            x: min(max(visible.midX - frame.width / 2 + stagger, inset.minX), maxX),
+            y: min(max(visible.midY - frame.height / 2 - stagger, inset.minY), maxY))
         window.setFrame(frame, display: true)
         didSizeInitialWindow = true
     }

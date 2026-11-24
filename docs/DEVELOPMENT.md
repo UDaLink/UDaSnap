@@ -49,7 +49,7 @@ tccutil reset ScreenCapture com.udalink.udasnap
 
 1. 构建 Universal release（arm64 + x86_64）；
 2. 组装 `.app`；
-3. 写入 `Info.plist`（bundle id `com.udalink.udasnap`，版本 `1.1.0` / `3`）；
+3. 写入 `Info.plist`（bundle id `com.udalink.udasnap`，版本 `1.1.0` / `4`）；
 4. 复制图标和 `PRIVACY.md`、`TERMS.md` 到 `Contents/Resources/Legal/`；
 5. `codesign` 并验证。
 
