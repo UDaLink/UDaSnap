@@ -12,7 +12,9 @@ permissions:
 jobs:
   build-test:
     name: Build, test, format
-    runs-on: macos-15
+    # arm64 macOS hosted runners can queue for a long time under capacity pressure.
+    # The Intel image runs the same Swift code and keeps PR checks deterministic.
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
