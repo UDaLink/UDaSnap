@@ -49,7 +49,7 @@ tccutil reset ScreenCapture com.udalink.udasnap
 
 1. 构建 Universal release（arm64 + x86_64）；
 2. 组装 `.app`；
-3. 写入 `Info.plist`（bundle id `com.udalink.udasnap`，版本 `1.1.0` / `4`）；
+3. 写入 `Info.plist`（bundle id `com.udalink.udasnap`，版本 `1.1.0` / `5`）；
 4. 复制图标和 `PRIVACY.md`、`TERMS.md` 到 `Contents/Resources/Legal/`；
 5. `codesign` 并验证。
 
@@ -88,8 +88,11 @@ open dist/UDaSnap.app
 手动检查：
 
 - 菜单栏图标出现；
-- 六个热键可触发对应流程，标注热键默认 `⌃⇧6`；
-- 标注编辑器可打开，工具、样式、撤销/重做、文字、裁剪、旋转、翻转、隐私遮挡可用；
+- 五个热键可触发对应流程；标注没有全局热键；
+- 菜单“标注截图”位于“文字提取 - AI 分析”下面；标注编辑器可打开，工具、样式、撤销/重做、文字、裁剪、旋转、翻转、隐私遮挡可用；
+- 框选保存、应用窗口截图、全屏截图保存后出现右下角缩略图，悬浮显示四角操作，点击主体进入标注；
+- 贴图悬浮显示四角操作与右侧外部 OCR / AI / 翻译按钮；
+- 偏好设置快捷键页只有五项，旧 `settings.json` 中的标注键在启动后被删除；
 - “完成”与“贴图”都能复制、保存最终 PNG，并确认 PNG 方向与像素尺寸；
 - 截图保存到 `~/Pictures/UDaSnap/`；
 - 偏好设置三页可打开；

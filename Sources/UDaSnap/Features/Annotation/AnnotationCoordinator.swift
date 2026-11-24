@@ -18,7 +18,8 @@ final class AnnotationCoordinator {
         image: CGImage,
         contentScale: CGFloat,
         screen: NSScreen,
-        pinOrigin: CGPoint
+        pinOrigin: CGPoint,
+        preferredFrame: NSRect? = nil
     ) {
         if editors.isEmpty {
             nextCascadeIndex = 0
@@ -27,7 +28,11 @@ final class AnnotationCoordinator {
         let cascadeIndex = nextCascadeIndex
         nextCascadeIndex += 1
         let editor = AnnotationEditorWindowController(
-            document: document, screen: screen, cascadeIndex: cascadeIndex)
+            document: document,
+            screen: screen,
+            cascadeIndex: cascadeIndex,
+            preferredFrame: preferredFrame
+        )
         editors.append(editor)
         editor.onFinish = { [weak self, weak editor] action in
             guard let self, let editor else { return }
@@ -58,10 +63,15 @@ final class AnnotationCoordinator {
     }
 
     private func commit(_ image: CGImage, pinOrigin: CGPoint, screen: NSScreen, makePin: Bool) {
-        ScreenshotStorage.copyToClipboard(image)
+        let clipboardData = ScreenshotStorage.copyToClipboard(image)
         let saved = ScreenshotStorage.savePNG(image)
         if makePin {
-            let pin = PinWindowController(image: image, origin: pinOrigin, onScreen: screen)
+            let pin = PinWindowController(
+                image: image,
+                savedURL: saved,
+                clipboardData: clipboardData,
+                origin: pinOrigin,
+                onScreen: screen)
             pinStore.add(pin)
         }
         if saved != nil {

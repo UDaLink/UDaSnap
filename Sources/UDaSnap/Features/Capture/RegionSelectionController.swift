@@ -81,11 +81,13 @@ final class RegionSelectionController: NSObject {
 
     private func beginRegionSelection(mode: CaptureMode) {
         var captured: [(NSScreen, CGImage)] = []
+        ScreenshotThumbnailCenter.shared.hideForCapture()
         for screen in NSScreen.screens {
             if let img = CaptureService.capture(screen: screen) {
                 captured.append((screen, img))
             }
         }
+        ScreenshotThumbnailCenter.shared.restoreAfterCapture()
         guard !captured.isEmpty else { return }
         active = true
 
@@ -131,7 +133,10 @@ final class RegionSelectionController: NSObject {
     private func finish(window: WindowCandidate) {
         teardown()
 
-        guard let image = CaptureService.captureWindow(id: window.id) else {
+        ScreenshotThumbnailCenter.shared.hideForCapture()
+        let image = CaptureService.captureWindow(id: window.id)
+        ScreenshotThumbnailCenter.shared.restoreAfterCapture()
+        guard let image else {
             NSSound.beep()
             HUDController.shared.show(
                 title: "截图失败",
@@ -142,20 +147,19 @@ final class RegionSelectionController: NSObject {
             return
         }
 
+        let screen =
+            NSScreen.screens.first {
+                $0.frame.contains(
+                    CGPoint(x: window.bounds.midX, y: window.bounds.midY))
+            } ?? NSScreen.main ?? NSScreen.screens[0]
+        let pixelScale = CGFloat(image.width) / max(window.bounds.width, 1)
+
         if mode == .annotateWindow {
-            let pixelScale = CGFloat(image.width) / max(window.bounds.width, 1)
-            let screen =
-                NSScreen.screens.first {
-                    $0.frame.contains(
-                        CGPoint(x: window.bounds.midX, y: window.bounds.midY))
-                } ?? NSScreen.main
-            if let screen {
-                onAnnotate?(image, pixelScale, window.bounds.origin, screen)
-            }
+            onAnnotate?(image, pixelScale, window.bounds.origin, screen)
             return
         }
 
-        ScreenshotStorage.copyToClipboard(image)
+        let clipboardData = ScreenshotStorage.copyToClipboard(image)
         let saved = ScreenshotStorage.savePNG(image)
         let size = "\(window.contentPixelWidth) × \(window.contentPixelHeight)"
 
@@ -166,6 +170,16 @@ final class RegionSelectionController: NSObject {
                 at: NSEvent.mouseLocation,
                 success: true
             )
+            ScreenshotThumbnailCenter.shared.show(
+                ScreenshotThumbnailItem(
+                    image: image,
+                    savedURL: saved,
+                    clipboardData: clipboardData,
+                    screen: screen,
+                    contentScale: pixelScale,
+                    pinOrigin: window.bounds.origin,
+                    createdAt: Date()
+                ))
             onSaved?(true)
         } else {
             HUDController.shared.show(
@@ -249,7 +263,7 @@ final class RegionSelectionController: NSObject {
             return
         }
 
-        ScreenshotStorage.copyToClipboard(cropped)
+        let clipboardData = ScreenshotStorage.copyToClipboard(cropped)
         let saved = ScreenshotStorage.savePNG(cropped)
 
         switch mode {
@@ -257,13 +271,32 @@ final class RegionSelectionController: NSObject {
             let globalOrigin = CGPoint(
                 x: screen.frame.minX + rect.minX,
                 y: screen.frame.minY + rect.minY)
-            let pin = PinWindowController(image: cropped, origin: globalOrigin, onScreen: screen)
+            let pin = PinWindowController(
+                image: cropped,
+                savedURL: saved,
+                clipboardData: clipboardData,
+                origin: globalOrigin,
+                onScreen: screen)
             pinStore.add(pin)
 
         case .save:
             let size = "\(cropped.width) × \(cropped.height)"
             if saved != nil {
                 HUDController.shared.show(title: "已保存", detail: size, at: NSEvent.mouseLocation, success: true)
+                let pixelScale = CGFloat(cropped.width) / max(rect.width, 1)
+                let origin = CGPoint(
+                    x: screen.frame.minX + rect.minX,
+                    y: screen.frame.minY + rect.minY)
+                ScreenshotThumbnailCenter.shared.show(
+                    ScreenshotThumbnailItem(
+                        image: cropped,
+                        savedURL: saved,
+                        clipboardData: clipboardData,
+                        screen: screen,
+                        contentScale: pixelScale,
+                        pinOrigin: origin,
+                        createdAt: Date()
+                    ))
                 onSaved?(true)
             } else {
                 HUDController.shared.show(

@@ -66,12 +66,26 @@ enum ScreenshotStorage {
         return target
     }
 
-    static func copyToClipboard(_ image: CGImage) {
-        let rep = NSBitmapImageRep(cgImage: image)
-        guard let data = rep.representation(using: .png, properties: [:]) else { return }
+    @discardableResult
+    static func copyToClipboard(_ image: CGImage) -> Data? {
+        guard let data = pngData(for: image) else { return nil }
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setData(data, forType: .png)
+        return data
+    }
+
+    static func pngData(for image: CGImage) -> Data? {
+        let rep = NSBitmapImageRep(cgImage: image)
+        return rep.representation(using: .png, properties: [:])
+    }
+
+    /// 只在剪贴板里仍是这张图的 PNG 时才清空，避免误删用户后来复制的内容。
+    static func clearClipboard(ifMatching data: Data?) {
+        guard let data else { return }
+        let pb = NSPasteboard.general
+        guard pb.data(forType: .png) == data else { return }
+        pb.clearContents()
     }
 
     /// 只写纯文本；识字模式不碰图片剪贴板。

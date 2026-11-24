@@ -49,6 +49,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 image: image, contentScale: scale, screen: screen, pinOrigin: origin)
         }
 
+        let thumbnailCenter = ScreenshotThumbnailCenter.shared
+        thumbnailCenter.onAnnotate = { [weak annotationCoordinator] item in
+            annotationCoordinator?.present(
+                image: item.image,
+                contentScale: item.contentScale,
+                screen: item.screen,
+                pinOrigin: item.pinOrigin)
+        }
+        thumbnailCenter.onPin = { [weak self] item in
+            self?.addPin(
+                image: item.image,
+                savedURL: item.savedURL,
+                clipboardData: item.clipboardData,
+                origin: item.pinOrigin,
+                screen: item.screen)
+        }
+        pinStore.actions = PinActions(
+            annotate: { [weak self] pin in self?.annotatePin(pin) },
+            ocr: { [weak self] pin in self?.presentOCR(for: pin) },
+            aiAnalyze: { [weak self] pin in self?.presentAI(for: pin, autoTranslate: false) },
+            translate: { [weak self] pin in self?.presentAI(for: pin, autoTranslate: true) }
+        )
+
         menuBar.onAnnotateRegion = { selection.begin(mode: .annotate) }
         menuBar.onAnnotateWindow = { selection.begin(mode: .annotateWindow) }
         menuBar.onAnnotateFullScreen = { [weak self] screen in
@@ -74,12 +97,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.onFireApp = { selection.begin(mode: .app) }
         hotkey.onFireScroll = { selection.begin(mode: .scroll) }
         hotkey.onFireOCR = { selection.begin(mode: .ocr) }
-        hotkey.onFireAnnotation = { selection.begin(mode: .annotate) }
         // 配置一变就刷新菜单，录制期间（热键暂停注册）也一样，菜单显示的始终是最新键位。
         hotkey.onSettingsChange = { [weak menuBar] settings in
             menuBar?.updateHotkeys(
                 pin: settings.pin, save: settings.save, app: settings.app,
-                scroll: settings.scroll, ocr: settings.ocr, annotation: settings.annotation)
+                scroll: settings.scroll, ocr: settings.ocr)
         }
         menuBar.onOpenSettings = { [weak self] in
             guard let self else { return }
@@ -102,8 +124,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             save: hotkey.settings.save,
             app: hotkey.settings.app,
             scroll: hotkey.settings.scroll,
-            ocr: hotkey.settings.ocr,
-            annotation: hotkey.settings.annotation
+            ocr: hotkey.settings.ocr
         )
 
         installComplianceObservers()
@@ -165,6 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey?.stop()
         selection?.cancelAll()
         annotationCoordinator?.dismiss()
+        ScreenshotThumbnailCenter.shared.dismissAll()
         pinStore.closeAll()
         AIResultWindowController.closeAllForConsentRevocation()
         OCRResultWindowController.closeAllForConsentRevocation()
@@ -256,6 +278,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: sender)
     }
 
+    private func addPin(
+        image: CGImage,
+        savedURL: URL?,
+        clipboardData: Data?,
+        origin: CGPoint,
+        screen: NSScreen
+    ) {
+        let pin = PinWindowController(
+            image: image,
+            savedURL: savedURL,
+            clipboardData: clipboardData,
+            origin: origin,
+            onScreen: screen)
+        pinStore.add(pin)
+    }
+
+    private func annotatePin(_ pin: PinWindowController) {
+        let frame = pin.currentFrame
+        let screen = pin.sourceScreenForAnnotation
+        let scale = pin.contentScaleForAnnotation
+        let image = pin.sourceImage
+        pin.close()
+        annotationCoordinator?.present(
+            image: image,
+            contentScale: scale,
+            screen: screen,
+            pinOrigin: frame.origin,
+            preferredFrame: frame)
+    }
+
+    private func presentOCR(for pin: PinWindowController) {
+        let point = NSEvent.mouseLocation
+        HUDController.shared.show(
+            title: "识别中", detail: "正在读取文字…", at: point, success: true)
+        OCRService.recognize(image: pin.sourceImage) { result in
+            switch result {
+            case .text(let text):
+                OCRResultWindowController.present(
+                    text: text, savedImage: pin.savedImageURL, at: point)
+            case .noText:
+                HUDController.shared.show(
+                    title: "未识别到文字",
+                    detail: pin.savedImageURL == nil ? "原图保存失败" : "原图已保存",
+                    at: point,
+                    success: false
+                )
+            case .failed:
+                HUDController.shared.show(
+                    title: "识别失败",
+                    detail: pin.savedImageURL == nil ? "原图保存失败" : "原图已保存",
+                    at: point,
+                    success: false
+                )
+            }
+        }
+    }
+
+    private func presentAI(for pin: PinWindowController, autoTranslate: Bool) {
+        let image = pin.sourceImage
+        let preview = NSImage(
+            cgImage: image,
+            size: NSSize(width: CGFloat(image.width), height: CGFloat(image.height)))
+        AIResultWindowController.present(
+            image: image,
+            preview: preview,
+            savedImage: pin.savedImageURL,
+            at: NSEvent.mouseLocation,
+            autoTranslate: autoTranslate,
+            openSettings: { [weak self] in self?.showAISettings() }
+        )
+    }
+
+    private func showAISettings() {
+        guard AppEnvironment.shared.compliance.isAccepted else {
+            presentOnboarding()
+            return
+        }
+        guard let hotkey else { return }
+        SettingsWindowController.shared.show(manager: hotkey, page: .ai)
+    }
+
     /// 立即截取整块屏幕（含菜单栏与 Dock），复制并保存，不贴图。
     private func captureFullScreen(on screen: NSScreen, menuBar: MenuBarController?, annotate: Bool = false) {
         guard AppEnvironment.shared.compliance.isAccepted else {
@@ -270,7 +373,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 菜单项点击后菜单还在收起；等它完全消失再截，避免把菜单本身截进去。
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self, weak menuBar] in
-            guard let image = CaptureService.capture(screen: screen) else {
+            ScreenshotThumbnailCenter.shared.hideForCapture()
+            let image = CaptureService.capture(screen: screen)
+            ScreenshotThumbnailCenter.shared.restoreAfterCapture()
+            guard let image else {
                 NSSound.beep()
                 HUDController.shared.show(
                     title: "全屏截图失败",
@@ -290,7 +396,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 return
             }
 
-            ScreenshotStorage.copyToClipboard(image)
+            let clipboardData = ScreenshotStorage.copyToClipboard(image)
             let saved = ScreenshotStorage.savePNG(image)
             let size = "\(image.width) × \(image.height)"
 
@@ -302,6 +408,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     success: true
                 )
                 menuBar?.flash()
+                let pinOrigin = CGPoint(
+                    x: screen.visibleFrame.minX + 20,
+                    y: screen.visibleFrame.minY + 20)
+                ScreenshotThumbnailCenter.shared.show(
+                    ScreenshotThumbnailItem(
+                        image: image,
+                        savedURL: saved,
+                        clipboardData: clipboardData,
+                        screen: screen,
+                        contentScale: screen.backingScaleFactor,
+                        pinOrigin: pinOrigin,
+                        createdAt: Date()
+                    ))
             } else {
                 HUDController.shared.show(
                     title: "保存失败",

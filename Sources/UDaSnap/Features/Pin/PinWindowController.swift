@@ -1,12 +1,23 @@
 import AppKit
 import UDaSnapCore
 
+/// 贴图浮窗的动作入口，由 AppDelegate 注入。
+@MainActor
+struct PinActions {
+    let annotate: (PinWindowController) -> Void
+    let ocr: (PinWindowController) -> Void
+    let aiAnalyze: (PinWindowController) -> Void
+    let translate: (PinWindowController) -> Void
+}
+
 /// 持有所有贴图，关一张释放一张。
 @MainActor
 final class PinStore {
     private(set) var pins: [PinWindowController] = []
+    var actions: PinActions?
 
     func add(_ pin: PinWindowController) {
+        pin.actions = actions
         pins.append(pin)
         pin.onClose = { [weak self, weak pin] in
             guard let pin else { return }
@@ -39,17 +50,31 @@ final class PinPanel: NSPanel {
 final class PinWindowController: NSObject {
 
     var onClose: (() -> Void)?
+    var actions: PinActions?
 
     private let panel: PinPanel
     private let pinView: PinView
     private let image: CGImage
-    /// 显示尺寸（point）。Retina 下图像像素是它的 2 倍，落盘不受影响。
-    private let baseSize: NSSize
+    private let savedURL: URL?
+    private let clipboardData: Data?
+    private let sourceScreen: NSScreen
     private var onlyThisSpace = false
     private var pinned = true
+    private var rail: PinActionRailController?
+    private var railHideWorkItem: DispatchWorkItem?
+    private var railHovered = false
 
-    init(image: CGImage, origin: CGPoint, onScreen screen: NSScreen) {
+    init(
+        image: CGImage,
+        savedURL: URL?,
+        clipboardData: Data?,
+        origin: CGPoint,
+        onScreen screen: NSScreen
+    ) {
         self.image = image
+        self.savedURL = savedURL
+        self.clipboardData = clipboardData
+        self.sourceScreen = screen
 
         // 显示尺寸 = 原始像素 / 屏的缩放比；超过屏 80% 时等比缩小显示。
         let scale = screen.backingScaleFactor
@@ -60,9 +85,13 @@ final class PinWindowController: NSObject {
         let maxH = screen.frame.height * 0.8
         let shrink = min(1, min(maxW / size.width, maxH / size.height))
         if shrink < 1 { size = NSSize(width: size.width * shrink, height: size.height * shrink) }
-        self.baseSize = size
+        var frame = NSRect(origin: origin, size: size)
+        let visible = screen.visibleFrame
+        let maxX = max(visible.minX + 20, visible.maxX - frame.width - 20)
+        let maxY = max(visible.minY + 20, visible.maxY - frame.height - 20)
+        frame.origin.x = min(max(frame.origin.x, visible.minX + 20), maxX)
+        frame.origin.y = min(max(frame.origin.y, visible.minY + 20), maxY)
 
-        let frame = NSRect(origin: origin, size: size)
         panel = PinPanel(
             contentRect: frame,
             styleMask: [.borderless, .nonactivatingPanel],
@@ -86,11 +115,21 @@ final class PinWindowController: NSObject {
         pinView.delegate = self
     }
 
+    var sourceImage: CGImage { image }
+    var sourceScreenForAnnotation: NSScreen { panel.screen ?? sourceScreen }
+    var currentFrame: NSRect { panel.frame }
+    var contentScaleForAnnotation: CGFloat {
+        CGFloat(image.width) / max(panel.frame.width, 1)
+    }
+    var savedImageURL: URL? { savedURL }
+
     func show() {
         panel.orderFrontRegardless()
     }
 
-    fileprivate func close() {
+    func close() {
+        rail?.hide()
+        rail = nil
         panel.close()
         onClose?()
     }
@@ -129,6 +168,7 @@ final class PinWindowController: NSObject {
 
     fileprivate func setFrame(_ frame: NSRect) {
         panel.setFrame(frame, display: true)
+        updateRailFrame()
     }
 
     fileprivate var frame: NSRect { panel.frame }
@@ -140,9 +180,91 @@ final class PinWindowController: NSObject {
         panel.makeFirstResponder(pinView)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    fileprivate func hoverChanged(_ hovering: Bool) {
+        if hovering {
+            showRail()
+        } else {
+            scheduleHideRail()
+        }
+    }
+
+    fileprivate func openFile() {
+        guard let savedURL else {
+            ScreenshotStorage.revealFolder()
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([savedURL])
+    }
+
+    fileprivate func deleteScreenshot() {
+        if let savedURL {
+            try? FileManager.default.removeItem(at: savedURL)
+        }
+        ScreenshotStorage.clearClipboard(ifMatching: clipboardData)
+        close()
+    }
+
+    fileprivate func annotate() {
+        actions?.annotate(self)
+    }
+
+    fileprivate func ocr() {
+        actions?.ocr(self)
+    }
+
+    fileprivate func aiAnalyze() {
+        actions?.aiAnalyze(self)
+    }
+
+    fileprivate func translate() {
+        actions?.translate(self)
+    }
+
+    private func showRail() {
+        railHideWorkItem?.cancel()
+        railHideWorkItem = nil
+        guard actions != nil else { return }
+        if rail == nil {
+            let controller = PinActionRailController(
+                ocr: { [weak self] in self?.ocr() },
+                aiAnalyze: { [weak self] in self?.aiAnalyze() },
+                translate: { [weak self] in self?.translate() }
+            )
+            controller.onHoverChanged = { [weak self] hovering in
+                self?.railHovered = hovering
+                if hovering {
+                    self?.railHideWorkItem?.cancel()
+                    self?.railHideWorkItem = nil
+                } else {
+                    self?.scheduleHideRail()
+                }
+            }
+            rail = controller
+        }
+        updateRailFrame()
+        rail?.show()
+    }
+
+    private func scheduleHideRail() {
+        railHideWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.railHovered else { return }
+            self.rail?.hide()
+        }
+        railHideWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    private func updateRailFrame() {
+        guard let rail else { return }
+        rail.setFrame(relativeTo: panel.frame, screen: panel.screen ?? sourceScreen)
+    }
 }
 
-// MARK: - 交互代理
+extension PinWindowController: PinViewDelegate {}
+
+// MARK: - 图片视图：拖动 / 缩放 / 滚轮 / 菜单 / 键盘
 
 @MainActor
 private protocol PinViewDelegate: AnyObject {
@@ -155,11 +277,24 @@ private protocol PinViewDelegate: AnyObject {
     func setFrame(_ frame: NSRect)
     var frame: NSRect { get }
     func makeKey()
+    func openFile()
+    func deleteScreenshot()
+    func annotate()
+    func hoverChanged(_ hovering: Bool)
 }
 
-extension PinWindowController: PinViewDelegate {}
+private enum PinHandle {
+    case n, s, e, w, nw, ne, sw, se
 
-// MARK: - 图片视图：拖动 / 缩放 / 滚轮 / 菜单 / 键盘
+    var cursor: NSCursor {
+        switch self {
+        case .n, .s: return .resizeUpDown
+        case .e, .w: return .resizeLeftRight
+        case .nw, .se: return .crosshair
+        case .ne, .sw: return .crosshair
+        }
+    }
+}
 
 @MainActor
 final class PinView: NSView {
@@ -168,7 +303,7 @@ final class PinView: NSView {
 
     private enum Mode {
         case none, move
-        case resize(Handle)
+        case resize(PinHandle)
     }
 
     private let image: NSImage
@@ -178,9 +313,13 @@ final class PinView: NSView {
     private var tracking: NSTrackingArea?
     private let minSide: CGFloat = 40
     private let grip: CGFloat = 7
-    private var showClose = false
+    private var showControls = false
+    private var draggingControls = false
     private var dragged = false
     private var pressed = false
+
+    private let iconSize: CGFloat = 24
+    private let iconInset: CGFloat = 6
 
     init(frame: NSRect, image cg: CGImage) {
         // 用像素尺寸建 NSImage；draw(in:) 会按 bounds 等比铺满，Retina 细节不丢。
@@ -198,45 +337,73 @@ final class PinView: NSView {
     override var acceptsFirstResponder: Bool { true }
 
     /// 贴图是 nonactivating 浮窗，默认第一次点击只会被当成"激活窗口"吞掉。
-    /// 这里放行，保证鼠标落上去的第一下就能命中删除按钮。
+    /// 这里放行，保证鼠标落上去的第一下就能命中角落按钮。
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     override func draw(_ dirtyRect: NSRect) {
         image.draw(in: bounds, from: .zero, operation: .sourceOver, fraction: 1)
-        if showClose { drawCloseButton() }
-    }
-
-    /// 右上角悬停删除按钮：鼠标进到角落附近才出现，不挡截图内容。
-    private var closeRect: CGRect {
-        CGRect(x: bounds.maxX - 26, y: bounds.maxY - 26, width: 18, height: 18)
-    }
-
-    private func drawCloseButton() {
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let r = closeRect
-        ctx.setFillColor(NSColor.black.withAlphaComponent(0.55).cgColor)
-        ctx.fillEllipse(in: r)
-        ctx.setStrokeColor(NSColor.white.cgColor)
-        ctx.setLineWidth(1)
-        ctx.strokeEllipse(in: r)
-
-        // 一个 ×
-        ctx.setStrokeColor(NSColor.white.cgColor)
-        ctx.setLineWidth(2)
-        let inset: CGFloat = 5.5
-        ctx.move(to: CGPoint(x: r.minX + inset, y: r.minY + inset))
-        ctx.addLine(to: CGPoint(x: r.maxX - inset, y: r.maxY - inset))
-        ctx.move(to: CGPoint(x: r.minX + inset, y: r.maxY - inset))
-        ctx.addLine(to: CGPoint(x: r.maxX - inset, y: r.minY + inset))
-        ctx.strokePath()
-    }
-
-    private func updateCloseVisibility(at p: CGPoint) {
-        let shouldShow = closeRect.insetBy(dx: -4, dy: -4).contains(p)
-        if shouldShow != showClose {
-            showClose = shouldShow
-            needsDisplay = true
+        if showControls {
+            drawControl(in: deleteRect, symbol: "trash")
+            drawControl(in: closeRect, symbol: "xmark")
+            drawControl(in: openRect, symbol: "folder")
+            drawControl(in: annotateRect, symbol: "pencil")
         }
+    }
+
+    private var deleteRect: NSRect {
+        NSRect(x: iconInset, y: bounds.maxY - iconInset - iconSize, width: iconSize, height: iconSize)
+    }
+    private var closeRect: NSRect {
+        NSRect(
+            x: bounds.maxX - iconInset - iconSize, y: bounds.maxY - iconInset - iconSize,
+            width: iconSize, height: iconSize)
+    }
+    private var openRect: NSRect {
+        NSRect(
+            x: bounds.maxX - iconInset - iconSize, y: iconInset, width: iconSize, height: iconSize)
+    }
+    private var annotateRect: NSRect {
+        NSRect(x: iconInset, y: iconInset, width: iconSize, height: iconSize)
+    }
+
+    private enum CornerAction {
+        case delete, close, open, annotate
+    }
+
+    private func action(at point: NSPoint) -> CornerAction? {
+        if deleteRect.contains(point) { return .delete }
+        if closeRect.contains(point) { return .close }
+        if openRect.contains(point) { return .open }
+        if annotateRect.contains(point) { return .annotate }
+        return nil
+    }
+
+    private func drawControl(in rect: NSRect, symbol: String) {
+        let background = NSBezierPath(roundedRect: rect, xRadius: 7, yRadius: 7)
+        NSColor.black.withAlphaComponent(0.6).setFill()
+        background.fill()
+        NSColor.white.withAlphaComponent(0.28).setStroke()
+        background.lineWidth = 0.5
+        background.stroke()
+
+        let config = NSImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        guard
+            let base = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)?
+                .withSymbolConfiguration(config)
+        else { return }
+        let tinted = Self.tinted(base, color: .white)
+        tinted.draw(in: rect.insetBy(dx: 5, dy: 5), from: .zero, operation: .sourceOver, fraction: 1)
+    }
+
+    private static func tinted(_ image: NSImage, color: NSColor) -> NSImage {
+        let result = NSImage(size: image.size)
+        result.lockFocus()
+        let rect = NSRect(origin: .zero, size: image.size)
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+        color.set()
+        rect.fill(using: .sourceIn)
+        result.unlockFocus()
+        return result
     }
 
     override func updateTrackingAreas() {
@@ -244,7 +411,7 @@ final class PinView: NSView {
         if let tracking { removeTrackingArea(tracking) }
         tracking = NSTrackingArea(
             rect: bounds,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
             owner: self
         )
         addTrackingArea(tracking!)
@@ -257,10 +424,21 @@ final class PinView: NSView {
         addCursorRect(bounds.insetBy(dx: grip, dy: grip), cursor: .arrow)
     }
 
+    private func setControlsVisible(_ visible: Bool) {
+        guard showControls != visible else { return }
+        showControls = visible
+        needsDisplay = true
+        delegate?.hoverChanged(visible)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        setControlsVisible(true)
+    }
+
     override func mouseMoved(with event: NSEvent) {
+        setControlsVisible(true)
         let p = convert(event.locationInWindow, from: nil)
-        updateCloseVisibility(at: p)
-        if closeRect.insetBy(dx: -4, dy: -4).contains(p) {
+        if action(at: p) != nil {
             NSCursor.arrow.set()
         } else if let h = handle(at: p) {
             h.cursor.set()
@@ -270,13 +448,10 @@ final class PinView: NSView {
     }
 
     override func mouseExited(with event: NSEvent) {
-        if showClose {
-            showClose = false
-            needsDisplay = true
-        }
+        setControlsVisible(false)
     }
 
-    private func handle(at p: CGPoint) -> Handle? {
+    private func handle(at p: CGPoint) -> PinHandle? {
         let nearL = p.x <= grip
         let nearR = p.x >= bounds.width - grip
         let nearB = p.y <= grip
@@ -297,25 +472,32 @@ final class PinView: NSView {
     // MARK: 移动与自由缩放
 
     override func mouseDown(with event: NSEvent) {
+        let p = convert(event.locationInWindow, from: nil)
+        if showControls, let action = action(at: p) {
+            draggingControls = true
+            switch action {
+            case .delete: delegate?.deleteScreenshot()
+            case .close: delegate?.close()
+            case .open: delegate?.openFile()
+            case .annotate: delegate?.annotate()
+            }
+            return
+        }
         if event.clickCount == 2 {
             delegate?.close()
             return
         }
 
-        let p = convert(event.locationInWindow, from: nil)
-        if closeRect.insetBy(dx: -4, dy: -4).contains(p) {
-            delegate?.close()
-            return
-        }
         mode = handle(at: p).map { Mode.resize($0) } ?? .move
         dragged = false
         pressed = true
+        draggingControls = false
         startMouse = NSEvent.mouseLocation
         startFrame = delegate?.frame ?? .zero
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let delegate else { return }
+        guard let delegate, !draggingControls else { return }
         dragged = true
         let now = NSEvent.mouseLocation
         let dx = now.x - startMouse.x
@@ -351,9 +533,10 @@ final class PinView: NSView {
     /// 只有"点一下没拖动"才把键盘焦点交给这张贴图，这样拖动贴图不会抢走
     /// 别的 app 的焦点，而单击之后 Delete / Backspace / Cmd+C 又能用。
     override func mouseUp(with event: NSEvent) {
-        if pressed && !dragged { delegate?.makeKey() }
+        if !draggingControls && pressed && !dragged { delegate?.makeKey() }
         pressed = false
         dragged = false
+        draggingControls = false
         mode = .none
     }
 
@@ -457,4 +640,141 @@ final class PinView: NSView {
     @objc private func menuAlpha(_ item: NSMenuItem) {
         delegate?.setAlpha(CGFloat(item.tag) / 100)
     }
+}
+
+// MARK: - 贴图右侧外部动作条
+
+@MainActor
+private final class PinActionRailController {
+    var onHoverChanged: ((Bool) -> Void)?
+
+    private let panel: NSPanel
+    private let content: PinActionRailView
+
+    init(ocr: @escaping () -> Void, aiAnalyze: @escaping () -> Void, translate: @escaping () -> Void) {
+        content = PinActionRailView(ocr: ocr, aiAnalyze: aiAnalyze, translate: translate)
+        let size = content.intrinsicContentSize
+        panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        panel.level = .floating
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        panel.hidesOnDeactivate = false
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.isReleasedWhenClosed = false
+        panel.contentView = content
+        content.onHoverChanged = { [weak self] hovering in
+            self?.onHoverChanged?(hovering)
+        }
+    }
+
+    var frame: NSRect { panel.frame }
+
+    func show() {
+        panel.orderFrontRegardless()
+    }
+
+    func hide() {
+        panel.orderOut(nil)
+    }
+
+    func setFrame(relativeTo pinFrame: NSRect, screen: NSScreen) {
+        let visible = screen.visibleFrame
+        let size = panel.frame.size
+        var x = pinFrame.maxX + 8
+        if x + size.width > visible.maxX - 8 {
+            x = pinFrame.minX - size.width - 8
+        }
+        x = min(max(x, visible.minX + 8), max(visible.minX + 8, visible.maxX - size.width - 8))
+        var y = pinFrame.minY
+        y = min(max(y, visible.minY + 8), max(visible.minY + 8, visible.maxY - size.height - 8))
+        panel.setFrame(NSRect(origin: NSPoint(x: x, y: y), size: size), display: true)
+    }
+}
+
+@MainActor
+private final class PinActionRailView: NSView {
+    var onHoverChanged: ((Bool) -> Void)?
+
+    private let ocrHandler: () -> Void
+    private let aiHandler: () -> Void
+    private let translateHandler: () -> Void
+    private var tracking: NSTrackingArea?
+
+    init(ocr: @escaping () -> Void, aiAnalyze: @escaping () -> Void, translate: @escaping () -> Void) {
+        self.ocrHandler = ocr
+        self.aiHandler = aiAnalyze
+        self.translateHandler = translate
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = 9
+        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.94).cgColor
+        layer?.borderWidth = 0.5
+        layer?.borderColor = NSColor.separatorColor.cgColor
+
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.spacing = 5
+        stack.edgeInsets = NSEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(stack)
+
+        let ocrButton = makeButton(title: "文字提取（OCR）", action: #selector(ocrClicked))
+        ocrButton.target = self
+        let aiButton = makeButton(title: "文字提取-AI分析", action: #selector(aiClicked))
+        aiButton.target = self
+        let translateButton = makeButton(title: "立即翻译", action: #selector(translateClicked))
+        translateButton.target = self
+        stack.addArrangedSubview(ocrButton)
+        stack.addArrangedSubview(aiButton)
+        stack.addArrangedSubview(translateButton)
+
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            stack.topAnchor.constraint(equalTo: topAnchor),
+            stack.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: 128, height: 6 + 26 + 5 + 26 + 5 + 26 + 6)
+    }
+
+    private func makeButton(title: String, action: Selector) -> NSButton {
+        let button = NSButton(title: title, target: nil, action: action)
+        button.bezelStyle = .rounded
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 11, weight: .medium)
+        button.alignment = .center
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        return button
+    }
+
+    @objc private func ocrClicked() { ocrHandler() }
+    @objc private func aiClicked() { aiHandler() }
+    @objc private func translateClicked() { translateHandler() }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        tracking = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self
+        )
+        addTrackingArea(tracking!)
+    }
+
+    override func mouseEntered(with event: NSEvent) { onHoverChanged?(true) }
+    override func mouseExited(with event: NSEvent) { onHoverChanged?(false) }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }

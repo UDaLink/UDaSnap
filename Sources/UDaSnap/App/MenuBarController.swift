@@ -38,13 +38,11 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var appHotkey: HotkeyConfig = .appDefault
     private var scrollHotkey: HotkeyConfig = .scrollDefault
     private var ocrHotkey: HotkeyConfig = .ocrDefault
-    private var annotationHotkey: HotkeyConfig = .annotationDefault
     private var pinHotkeyTitle: String { pinHotkey.display }
     private var saveHotkeyTitle: String { saveHotkey.display }
     private var appHotkeyTitle: String { appHotkey.display }
     private var scrollHotkeyTitle: String { scrollHotkey.display }
     private var ocrHotkeyTitle: String { ocrHotkey.display }
-    private var annotationHotkeyTitle: String { annotationHotkey.display }
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var permissionItem: NSMenuItem?
@@ -60,30 +58,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         button.image = BrandMark.statusImage()
         button.toolTip =
-            "UDaSnap · 截图 \(saveHotkeyTitle) / 应用 \(appHotkeyTitle) / 滚动 \(scrollHotkeyTitle) / 识字 \(ocrHotkeyTitle) / 贴图 \(pinHotkeyTitle) / 标注 \(annotationHotkeyTitle)"
+            "UDaSnap · 截图 \(saveHotkeyTitle) / 应用 \(appHotkeyTitle) / 滚动 \(scrollHotkeyTitle) / 识字 \(ocrHotkeyTitle) / 贴图 \(pinHotkeyTitle)"
         button.wantsLayer = true
     }
 
     func rebuildMenu() {
         let menu = NSMenu()
-
-        let annotateItem = NSMenuItem(title: "标注截图", action: nil, keyEquivalent: "")
-        let annotateMenu = NSMenu(title: "标注截图")
-        let annotateRegion = makeCaptureItem(
-            title: "框选标注",
-            config: annotationHotkey,
-            action: #selector(annotateRegion))
-        annotateMenu.addItem(annotateRegion)
-        let annotateWindow = NSMenuItem(
-            title: "窗口标注", action: #selector(annotateWindow), keyEquivalent: "")
-        annotateWindow.target = self
-        annotateMenu.addItem(annotateWindow)
-        let annotateFullScreen = NSMenuItem(
-            title: "全屏标注", action: #selector(annotateFullScreen), keyEquivalent: "")
-        annotateFullScreen.target = self
-        annotateMenu.addItem(annotateFullScreen)
-        annotateItem.submenu = annotateMenu
-        menu.addItem(annotateItem)
 
         let save = makeCaptureItem(title: "框选截图", config: saveHotkey, action: #selector(captureNow))
         menu.addItem(save)
@@ -111,6 +91,23 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let ai = NSMenuItem(title: "文字提取-AI分析", action: #selector(captureAI), keyEquivalent: "")
         ai.target = self
         menu.addItem(ai)
+
+        let annotateItem = NSMenuItem(title: "标注截图", action: nil, keyEquivalent: "")
+        let annotateMenu = NSMenu(title: "标注截图")
+        let annotateRegion = NSMenuItem(
+            title: "框选标注", action: #selector(annotateRegion), keyEquivalent: "")
+        annotateRegion.target = self
+        annotateMenu.addItem(annotateRegion)
+        let annotateWindow = NSMenuItem(
+            title: "窗口标注", action: #selector(annotateWindow), keyEquivalent: "")
+        annotateWindow.target = self
+        annotateMenu.addItem(annotateWindow)
+        let annotateFullScreen = NSMenuItem(
+            title: "全屏标注", action: #selector(annotateFullScreen), keyEquivalent: "")
+        annotateFullScreen.target = self
+        annotateMenu.addItem(annotateFullScreen)
+        annotateItem.submenu = annotateMenu
+        menu.addItem(annotateItem)
 
         menu.addItem(.separator())
 
@@ -275,17 +272,15 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     /// 快捷键变更后更新菜单、提示文案与工具提示。
     func updateHotkeys(
-        pin: HotkeyConfig, save: HotkeyConfig, app: HotkeyConfig, scroll: HotkeyConfig, ocr: HotkeyConfig,
-        annotation: HotkeyConfig
+        pin: HotkeyConfig, save: HotkeyConfig, app: HotkeyConfig, scroll: HotkeyConfig, ocr: HotkeyConfig
     ) {
         pinHotkey = pin
         saveHotkey = save
         appHotkey = app
         scrollHotkey = scroll
         ocrHotkey = ocr
-        annotationHotkey = annotation
         statusItem.button?.toolTip =
-            "UDaSnap · 截图 \(save.display) / 应用 \(app.display) / 滚动 \(scroll.display) / 识字 \(ocr.display) / 贴图 \(pin.display) / 标注 \(annotation.display)"
+            "UDaSnap · 截图 \(save.display) / 应用 \(app.display) / 滚动 \(scroll.display) / 识字 \(ocr.display) / 贴图 \(pin.display)"
         rebuildMenu()
     }
 

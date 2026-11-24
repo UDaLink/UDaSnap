@@ -37,13 +37,7 @@ struct HotkeyConfig: Codable, Equatable {
         carbonModifiers: UInt32(controlKey | shiftKey)
     )
 
-    /// 标注截图键默认值：⌃⇧6
-    static let annotationDefault = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_6),
-        carbonModifiers: UInt32(controlKey | shiftKey)
-    )
-
-    /// 固定备用键，不可录制：⌥⇧2 / ⌥⇧3 / ⌥⇧4 / ⌥⇧5 / ⌥⇧6 / ⌥⇧7
+    /// 固定备用键，不可录制：⌥⇧2 / ⌥⇧3 / ⌥⇧4 / ⌥⇧5 / ⌥⇧6
     static let appBackup = HotkeyConfig(
         keyCode: UInt32(kVK_ANSI_3),
         carbonModifiers: UInt32(optionKey | shiftKey)
@@ -66,11 +60,6 @@ struct HotkeyConfig: Codable, Equatable {
 
     static let ocrBackup = HotkeyConfig(
         keyCode: UInt32(kVK_ANSI_2),
-        carbonModifiers: UInt32(optionKey | shiftKey)
-    )
-
-    static let annotationBackup = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_7),
         carbonModifiers: UInt32(optionKey | shiftKey)
     )
 
@@ -160,7 +149,6 @@ struct AppSettings: Codable, Equatable {
     var app: HotkeyConfig
     var scroll: HotkeyConfig
     var ocr: HotkeyConfig
-    var annotation: HotkeyConfig
     var forceTap: Bool
 
     static let `default` = AppSettings(
@@ -169,20 +157,18 @@ struct AppSettings: Codable, Equatable {
         app: .appDefault,
         scroll: .scrollDefault,
         ocr: .ocrDefault,
-        annotation: .annotationDefault,
         forceTap: false
     )
 
     init(
         pin: HotkeyConfig, save: HotkeyConfig, app: HotkeyConfig, scroll: HotkeyConfig, ocr: HotkeyConfig,
-        annotation: HotkeyConfig, forceTap: Bool
+        forceTap: Bool
     ) {
         self.pin = pin
         self.save = save
         self.app = app
         self.scroll = scroll
         self.ocr = ocr
-        self.annotation = annotation
         self.forceTap = forceTap
     }
 
@@ -197,8 +183,6 @@ struct AppSettings: Codable, Equatable {
         case scrollCarbonModifiers
         case ocrKeyCode
         case ocrCarbonModifiers
-        case annotationKeyCode
-        case annotationCarbonModifiers
         case forceTap
     }
 
@@ -232,14 +216,6 @@ struct AppSettings: Codable, Equatable {
             try c.decodeIfPresent(UInt32.self, forKey: .ocrCarbonModifiers) ?? HotkeyConfig.ocrDefault.carbonModifiers
         self.ocr = HotkeyConfig(keyCode: ocrKey, carbonModifiers: ocrMods)
 
-        let annotationKey =
-            try c.decodeIfPresent(UInt32.self, forKey: .annotationKeyCode)
-            ?? HotkeyConfig.annotationDefault.keyCode
-        let annotationMods =
-            try c.decodeIfPresent(UInt32.self, forKey: .annotationCarbonModifiers)
-            ?? HotkeyConfig.annotationDefault.carbonModifiers
-        self.annotation = HotkeyConfig(keyCode: annotationKey, carbonModifiers: annotationMods)
-
         self.forceTap = try c.decodeIfPresent(Bool.self, forKey: .forceTap) ?? false
     }
 
@@ -255,8 +231,6 @@ struct AppSettings: Codable, Equatable {
         try c.encode(scroll.carbonModifiers, forKey: .scrollCarbonModifiers)
         try c.encode(ocr.keyCode, forKey: .ocrKeyCode)
         try c.encode(ocr.carbonModifiers, forKey: .ocrCarbonModifiers)
-        try c.encode(annotation.keyCode, forKey: .annotationKeyCode)
-        try c.encode(annotation.carbonModifiers, forKey: .annotationCarbonModifiers)
         try c.encode(forceTap, forKey: .forceTap)
     }
 }
@@ -273,6 +247,17 @@ enum SettingsFile {
             let settings = try? JSONDecoder().decode(AppSettings.self, from: data)
         else {
             return .default
+        }
+        // 旧版把标注热键写进配置；这里直接物理删除，不保留废弃字段。
+        if var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let removedKey = object.removeValue(forKey: "annotationKeyCode") != nil
+            let removedModifiers = object.removeValue(forKey: "annotationCarbonModifiers") != nil
+            if removedKey || removedModifiers,
+                let clean = try? JSONSerialization.data(
+                    withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+            {
+                try? clean.write(to: url, options: .atomic)
+            }
         }
         return settings
     }

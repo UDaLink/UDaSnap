@@ -15,6 +15,7 @@ final class AnnotationEditorWindowController: NSWindowController, NSWindowDelega
 
     private let screen: NSScreen
     private let cascadeIndex: Int
+    private let preferredFrame: NSRect?
     private let canvas: AnnotationCanvasView
     private let toolbar = AnnotationToolbarView()
     private let scrollView = NSScrollView()
@@ -23,9 +24,15 @@ final class AnnotationEditorWindowController: NSWindowController, NSWindowDelega
     private var isFinishing = false
     private var didSizeInitialWindow = false
 
-    init(document: AnnotationDocument, screen: NSScreen, cascadeIndex: Int = 0) {
+    init(
+        document: AnnotationDocument,
+        screen: NSScreen,
+        cascadeIndex: Int = 0,
+        preferredFrame: NSRect? = nil
+    ) {
         self.screen = screen
         self.cascadeIndex = cascadeIndex
+        self.preferredFrame = preferredFrame
         self.canvas = AnnotationCanvasView(document: document)
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 800),
@@ -211,27 +218,59 @@ final class AnnotationEditorWindowController: NSWindowController, NSWindowDelega
     private func sizeInitialWindow() {
         guard let window else { return }
         let visible = screen.visibleFrame
+        let standardSize = standardWindowSize()
+        var frame = window.frame
+        if let preferredFrame {
+            let minSize = NSSize(width: 760, height: 430)
+            let sourceSize = preferredFrame.size
+            if sourceSize.width > standardSize.width || sourceSize.height > standardSize.height {
+                frame.size = standardSize
+            } else if sourceSize.width < minSize.width || sourceSize.height < minSize.height {
+                frame.size = standardSize
+            } else {
+                frame.size = sourceSize
+            }
+            frame.origin = NSPoint(
+                x: preferredFrame.midX - frame.width / 2,
+                y: preferredFrame.midY - frame.height / 2)
+        } else {
+            frame.size = standardSize
+            let stagger = CGFloat(cascadeIndex % 6) * 28
+            frame.origin = NSPoint(
+                x: visible.midX - frame.width / 2 + stagger,
+                y: visible.midY - frame.height / 2 - stagger)
+        }
+
+        let inset = visible.insetBy(dx: 12, dy: 12)
+        let maxX = max(inset.minX, inset.maxX - frame.width)
+        let maxY = max(inset.minY, inset.maxY - frame.height)
+        frame.origin = NSPoint(
+            x: min(max(frame.origin.x, inset.minX), maxX),
+            y: min(max(frame.origin.y, inset.minY), maxY))
+        window.setFrame(frame, display: true)
+
+        let contentWidth = max(240, frame.width - 24)
+        let contentHeight = max(120, frame.height - toolbarHeight - 28)
+        let pixelWidth = max(1, canvas.document.canvasSize.width)
+        let pixelHeight = max(1, canvas.document.canvasSize.height)
+        let zoom = max(
+            0.03,
+            min(contentWidth / pixelWidth, contentHeight / pixelHeight, 1))
+        canvas.zoom = zoom
+        canvas.setFrameSize(NSSize(width: pixelWidth * zoom, height: pixelHeight * zoom))
+        didSizeInitialWindow = true
+    }
+
+    private func standardWindowSize() -> NSSize {
+        let visible = screen.visibleFrame
         let maxCanvasWidth = max(240, visible.width * 0.84)
         let maxCanvasHeight = max(180, visible.height * 0.78 - toolbarHeight)
         let pixelWidth = max(1, canvas.document.canvasSize.width)
         let pixelHeight = max(1, canvas.document.canvasSize.height)
         let zoom = max(0.03, min(maxCanvasWidth / pixelWidth, maxCanvasHeight / pixelHeight, 1))
-        canvas.zoom = zoom
-        canvas.setFrameSize(NSSize(width: pixelWidth * zoom, height: pixelHeight * zoom))
-
-        let windowWidth = max(760, min(visible.width * 0.94, pixelWidth * zoom + 24))
-        let windowHeight = max(430, min(visible.height * 0.92, pixelHeight * zoom + toolbarHeight + 24))
-        var frame = window.frame
-        frame.size = NSSize(width: windowWidth, height: windowHeight)
-        let stagger = CGFloat(cascadeIndex % 6) * 28
-        let inset = visible.insetBy(dx: 12, dy: 12)
-        let maxX = max(inset.minX, inset.maxX - frame.width)
-        let maxY = max(inset.minY, inset.maxY - frame.height)
-        frame.origin = NSPoint(
-            x: min(max(visible.midX - frame.width / 2 + stagger, inset.minX), maxX),
-            y: min(max(visible.midY - frame.height / 2 - stagger, inset.minY), maxY))
-        window.setFrame(frame, display: true)
-        didSizeInitialWindow = true
+        let width = max(760, min(visible.width * 0.94, pixelWidth * zoom + 24))
+        let height = max(430, min(visible.height * 0.92, pixelHeight * zoom + toolbarHeight + 24))
+        return NSSize(width: width, height: height)
     }
 
     /// 适配当前窗口，不改变窗口位置或尺寸；裁剪、旋转、翻转后窗口保持稳定。
