@@ -3,15 +3,16 @@ import ApplicationServices
 import Carbon
 import UDaSnapCore
 
-/// 全局热键。五套模式各有一个主键和一个固定备用键：
+/// 全局热键。六套模式各有一个主键和一个固定备用键：
 /// - 贴图：主键可改（默认 ⌃⇧4），备用 ⌥⇧4
 /// - 截图：主键可改（默认 ⌃⇧5），备用 ⌥⇧5
 /// - 应用窗口：主键可改（默认 ⌃⇧3），备用 ⌥⇧3
 /// - 滚动截图：主键可改（默认 ⌘F4），备用 ⌥⇧6
 /// - 文字提取（OCR）：主键可改（默认 ⌃⇧2），备用 ⌥⇧2
+/// - 标注截图：主键可改（默认 ⌃⇧6），备用 ⌥⇧7
 ///
 /// 主键走 Carbon `RegisterEventHotKey`，不需要额外权限。
-/// 强力模式（`forceTap`）用一个 `CGEvent` tap 同时匹配五套主键，
+/// 强力模式（`forceTap`）用一个 `CGEvent` tap 同时匹配六套主键，
 /// 在系统分发之前把按键吞掉，代价是需要「辅助功能」授权。
 /// 备用键始终走 Carbon，保证强力模式失效时还有退路。
 ///
@@ -34,11 +35,13 @@ final class HotkeyManager {
         var app: Status = .carbonFailed(-1)
         var scroll: Status = .carbonFailed(-1)
         var ocr: Status = .carbonFailed(-1)
+        var annotation: Status = .carbonFailed(-1)
         var pinAlt: OSStatus = -1
         var saveAlt: OSStatus = -1
         var appAlt: OSStatus = -1
         var scrollAlt: OSStatus = -1
         var ocrAlt: OSStatus = -1
+        var annotationAlt: OSStatus = -1
     }
 
     private(set) var settings: AppSettings
@@ -49,6 +52,7 @@ final class HotkeyManager {
     var onFireApp: (() -> Void)?
     var onFireScroll: (() -> Void)?
     var onFireOCR: (() -> Void)?
+    var onFireAnnotation: (() -> Void)?
     var onStatusChange: ((Statuses) -> Void)?
     /// 配置一变就通知，和注册状态无关；菜单栏用它同步显示新的键位。
     var onSettingsChange: ((AppSettings) -> Void)?
@@ -58,11 +62,13 @@ final class HotkeyManager {
     private var appRef: EventHotKeyRef?
     private var scrollRef: EventHotKeyRef?
     private var ocrRef: EventHotKeyRef?
+    private var annotationRef: EventHotKeyRef?
     private var pinAltRef: EventHotKeyRef?
     private var saveAltRef: EventHotKeyRef?
     private var appAltRef: EventHotKeyRef?
     private var scrollAltRef: EventHotKeyRef?
     private var ocrAltRef: EventHotKeyRef?
+    private var annotationAltRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -79,6 +85,8 @@ final class HotkeyManager {
     private static let scrollAltID: UInt32 = 9
     private static let ocrID: UInt32 = 10
     private static let ocrAltID: UInt32 = 11
+    private static let annotationID: UInt32 = 12
+    private static let annotationAltID: UInt32 = 13
 
     init(settings: AppSettings = SettingsFile.load()) {
         self.settings = settings
@@ -129,11 +137,16 @@ final class HotkeyManager {
             UnregisterEventHotKey(ref)
             ocrAltRef = nil
         }
+        if let ref = annotationAltRef {
+            UnregisterEventHotKey(ref)
+            annotationAltRef = nil
+        }
         statuses.pinAlt = -1
         statuses.saveAlt = -1
         statuses.appAlt = -1
         statuses.scrollAlt = -1
         statuses.ocrAlt = -1
+        statuses.annotationAlt = -1
         stopTap()
     }
 
@@ -181,12 +194,14 @@ final class HotkeyManager {
                 statuses.app = .tapRunning
                 statuses.scroll = .tapRunning
                 statuses.ocr = .tapRunning
+                statuses.annotation = .tapRunning
             } else {
                 statuses.pin = .tapNoAccessibility
                 statuses.save = .tapNoAccessibility
                 statuses.app = .tapNoAccessibility
                 statuses.scroll = .tapNoAccessibility
                 statuses.ocr = .tapNoAccessibility
+                statuses.annotation = .tapNoAccessibility
             }
         } else {
             stopTap()
@@ -195,11 +210,13 @@ final class HotkeyManager {
             let appStatus = registerCarbon(settings.app, id: Self.appID, ref: &appRef)
             let scrollStatus = registerCarbon(settings.scroll, id: Self.scrollID, ref: &scrollRef)
             let ocrStatus = registerCarbon(settings.ocr, id: Self.ocrID, ref: &ocrRef)
+            let annotationStatus = registerCarbon(settings.annotation, id: Self.annotationID, ref: &annotationRef)
             statuses.pin = pinStatus == noErr ? .carbonOK : .carbonFailed(pinStatus)
             statuses.save = saveStatus == noErr ? .carbonOK : .carbonFailed(saveStatus)
             statuses.app = appStatus == noErr ? .carbonOK : .carbonFailed(appStatus)
             statuses.scroll = scrollStatus == noErr ? .carbonOK : .carbonFailed(scrollStatus)
             statuses.ocr = ocrStatus == noErr ? .carbonOK : .carbonFailed(ocrStatus)
+            statuses.annotation = annotationStatus == noErr ? .carbonOK : .carbonFailed(annotationStatus)
         }
 
         onStatusChange?(statuses)
@@ -239,11 +256,16 @@ final class HotkeyManager {
             UnregisterEventHotKey(ref)
             ocrAltRef = nil
         }
+        if let ref = annotationAltRef {
+            UnregisterEventHotKey(ref)
+            annotationAltRef = nil
+        }
         statuses.pinAlt = registerCarbon(.pinBackup, id: Self.pinAltID, ref: &pinAltRef)
         statuses.saveAlt = registerCarbon(.saveBackup, id: Self.saveAltID, ref: &saveAltRef)
         statuses.appAlt = registerCarbon(.appBackup, id: Self.appAltID, ref: &appAltRef)
         statuses.scrollAlt = registerCarbon(.scrollBackup, id: Self.scrollAltID, ref: &scrollAltRef)
         statuses.ocrAlt = registerCarbon(.ocrBackup, id: Self.ocrAltID, ref: &ocrAltRef)
+        statuses.annotationAlt = registerCarbon(.annotationBackup, id: Self.annotationAltID, ref: &annotationAltRef)
     }
 
     private func unregisterPrimary() {
@@ -266,6 +288,10 @@ final class HotkeyManager {
         if let ref = ocrRef {
             UnregisterEventHotKey(ref)
             ocrRef = nil
+        }
+        if let ref = annotationRef {
+            UnregisterEventHotKey(ref)
+            annotationRef = nil
         }
     }
 
@@ -307,6 +333,8 @@ final class HotkeyManager {
                     DispatchQueue.main.async { manager.onFireScroll?() }
                 case HotkeyManager.ocrID, HotkeyManager.ocrAltID:
                     DispatchQueue.main.async { manager.onFireOCR?() }
+                case HotkeyManager.annotationID, HotkeyManager.annotationAltID:
+                    DispatchQueue.main.async { manager.onFireAnnotation?() }
                 default:
                     break
                 }
@@ -358,6 +386,10 @@ final class HotkeyManager {
             }
             if manager.matches(event, config: manager.settings.ocr) {
                 DispatchQueue.main.async { manager.onFireOCR?() }
+                return nil
+            }
+            if manager.matches(event, config: manager.settings.annotation) {
+                DispatchQueue.main.async { manager.onFireAnnotation?() }
                 return nil
             }
             return Unmanaged.passUnretained(event)

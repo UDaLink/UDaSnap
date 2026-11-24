@@ -10,6 +10,8 @@ enum CaptureMode {
     case ocr  // 框选区域 → 保存原图并识别文字
     case ai  // 框选区域 → 保存原图并打开 AI 识别结果窗（不复制图片）
     case aiTranslate  // 框选区域 → 保存原图，智能合并换行后自动翻译
+    case annotate  // 框选区域 → 打开标注编辑器，不直接保存
+    case annotateWindow  // 点选窗口 → 打开标注编辑器
 }
 
 // MARK: - 会话控制
@@ -31,6 +33,8 @@ final class RegionSelectionController: NSObject {
     var onSaved: ((Bool) -> Void)?
     /// AI 结果窗里「打开 AI 设置」的入口，由 AppDelegate 注入。
     var onOpenAISettings: (() -> Void)?
+    /// 截图完成后进入标注编辑器的入口：(原图, 像素密度, 全局原点, 所在屏幕)。
+    var onAnnotate: ((CGImage, CGFloat, CGPoint, NSScreen) -> Void)?
 
     init(pinStore: PinStore) {
         self.pinStore = pinStore
@@ -52,9 +56,9 @@ final class RegionSelectionController: NSObject {
         self.mode = mode
         ScrollPreviewWindowController.shared.dismiss()
         switch mode {
-        case .app:
+        case .app, .annotateWindow:
             beginAppSelection()
-        case .pin, .save, .scroll, .ocr, .ai, .aiTranslate:
+        case .pin, .save, .scroll, .ocr, .ai, .aiTranslate, .annotate:
             beginRegionSelection(mode: mode)
         }
     }
@@ -99,7 +103,9 @@ final class RegionSelectionController: NSObject {
             hint = "拖拽框选 · 松手 AI 识别"
         case .aiTranslate:
             hint = "拖拽框选 · 松手 AI 翻译"
-        case .app:
+        case .annotate:
+            hint = "拖拽框选 · 松手进入标注"
+        case .annotateWindow, .app:
             return
         }
 
@@ -136,6 +142,19 @@ final class RegionSelectionController: NSObject {
             return
         }
 
+        if mode == .annotateWindow {
+            let pixelScale = CGFloat(image.width) / max(window.bounds.width, 1)
+            let screen =
+                NSScreen.screens.first {
+                    $0.frame.contains(
+                        CGPoint(x: window.bounds.midX, y: window.bounds.midY))
+                } ?? NSScreen.main
+            if let screen {
+                onAnnotate?(image, pixelScale, window.bounds.origin, screen)
+            }
+            return
+        }
+
         ScreenshotStorage.copyToClipboard(image)
         let saved = ScreenshotStorage.savePNG(image)
         let size = "\(window.contentPixelWidth) × \(window.contentPixelHeight)"
@@ -165,6 +184,15 @@ final class RegionSelectionController: NSObject {
             return
         }
         teardown()
+
+        if mode == .annotate {
+            let pixelScale = CGFloat(cropped.width) / max(rect.width, 1)
+            let origin = CGPoint(
+                x: screen.frame.minX + rect.minX,
+                y: screen.frame.minY + rect.minY)
+            onAnnotate?(cropped, pixelScale, origin, screen)
+            return
+        }
 
         if mode == .scroll {
             startScrollCapture(initialImage: cropped, rect: rect, screen: screen)
@@ -244,7 +272,7 @@ final class RegionSelectionController: NSObject {
                 onSaved?(false)
             }
 
-        case .app, .scroll, .ocr, .ai, .aiTranslate:
+        case .app, .scroll, .ocr, .ai, .aiTranslate, .annotate, .annotateWindow:
             break
         }
     }

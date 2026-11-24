@@ -2,7 +2,7 @@
 
 ## 目标
 
-UDaSnap 1.0.0 是按“截图即用”重新组织的一版实现：产品行为与 1.6.1 保持一致，但代码从空目录重建，围绕 **Core 纯逻辑 / App 表现层** 分层，方便测试、替换和长期维护。
+UDaSnap 1.1.0 延续“截图即用”的分层：Core 负责可测试的标注模型与图像变换，App 负责画布、工具栏和窗口表现；后续功能仍按 **Core 纯逻辑 / App 表现层** 扩展。
 
 ## 目录
 
@@ -12,6 +12,7 @@ Sources/
     Configuration/             # AISettings、AppPaths、AIConfigStore
     Security/                  # endpoint 策略、同意键、钥匙串
     AI/                        # OpenAI 兼容客户端、翻译语言、图片编码
+    Annotation/                # 标注模型、撤销历史、裁剪/旋转/翻转
     OCR/                       # Vision OCR
     Imaging/                   # 滚动拼接
     Storage/                   # 文件命名、保留清理
@@ -20,6 +21,7 @@ Sources/
     App/                       # main、AppDelegate、AppEnvironment
     Features/
       Capture/                 # 选区、窗口选择、截图、截图存储
+      Annotation/              # 标注编辑器、画布、工具栏、渲染与输出
       Scroll/                  # 滚动采集与预览
       OCR/                     # OCR 结果窗
       AI/                      # AI 结果窗、AI 设置、逐接口同意
@@ -51,6 +53,14 @@ docs/                          # 使用、架构、开发文档
 - 控制器通过初始化参数接收依赖；少量 AppKit 回调使用组合根，不再各自持有 `static shared` store。
 - 不保留旧 API 兼容层；类型、文件、成员统一命名，旧名不进入新仓库。
 
+## 标注
+
+- `UDaSnapCore/Annotation` 定义 `AnnotationDocument`：持有原图、对象数组、撤销/重做快照。
+- 坐标统一为原图像素、左上角原点；`contentScale` 表示像素 / point，样式尺寸按 point 存储、渲染时乘 `contentScale`。
+- 裁剪、左右 90° 旋转、水平翻转都会同步变换已有对象；文字与序号保持正向可读，只移动中心位置。
+- `AnnotationRenderer` 在导出时把基础图、所有对象与隐私遮挡绘制成一张 CGImage；马赛克/模糊/色块在导出阶段烘焙为像素。
+- App 层的 `AnnotationCanvasView` 负责选择、拖动、缩放、内联文字、裁剪选区与快捷键；`AnnotationEditorWindowController` 只管独立置顶窗口与工具栏布局。
+
 ## 并发
 
 - Swift 6 tools + Swift 6 语言模式，启用严格并发检查。
@@ -74,7 +84,7 @@ docs/                          # 使用、架构、开发文档
 
 ## 测试边界
 
-- XCTest 只测 Core：endpoint 策略、同意键归一化、设置 Codable、翻译语言、截图命名与保留、滚动拼接。
+- XCTest 只测 Core：endpoint 策略、同意键归一化、设置 Codable、翻译语言、截图命名与保留、滚动拼接，以及标注编号、撤销/重做、裁剪、旋转、翻转与命中测试。
 - 不做 UI 自动化；App 层用本地 `swift build`、`--self-test` 和手动冒烟验证。
 - CI 在 macOS 上跑 `swift test` 与 `swift format lint`；Release 工作流只在 tag 或手动触发时打包 Universal `.app`。
 

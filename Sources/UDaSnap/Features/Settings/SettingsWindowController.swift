@@ -29,11 +29,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private var currentPage: PreferencesPage = .ai
 
     private let saveRecorder = RecorderView(frame: .zero)
+    private let annotationRecorder = RecorderView(frame: .zero)
     private let pinRecorder = RecorderView(frame: .zero)
     private let appRecorder = RecorderView(frame: .zero)
     private let scrollRecorder = RecorderView(frame: .zero)
     private let ocrRecorder = RecorderView(frame: .zero)
     private let saveStatus = NSTextField(labelWithString: "")
+    private let annotationStatus = NSTextField(labelWithString: "")
     private let pinStatus = NSTextField(labelWithString: "")
     private let appStatus = NSTextField(labelWithString: "")
     private let scrollStatus = NSTextField(labelWithString: "")
@@ -98,12 +100,20 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             y: 104
         )
         addShortcutRow(
+            name: "标注截图",
+            detail: "框选区域后进入标注编辑器，可复制、保存或贴图",
+            recorder: annotationRecorder,
+            status: annotationStatus,
+            mode: .annotate,
+            y: 194
+        )
+        addShortcutRow(
             name: "截图并贴图",
             detail: "框选区域，贴成始终置顶的浮窗",
             recorder: pinRecorder,
             status: pinStatus,
             mode: .pin,
-            y: 198
+            y: 284
         )
         addShortcutRow(
             name: "应用窗口截图",
@@ -111,7 +121,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: appRecorder,
             status: appStatus,
             mode: .app,
-            y: 292
+            y: 374
         )
         addShortcutRow(
             name: "滚动截图",
@@ -119,7 +129,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: scrollRecorder,
             status: scrollStatus,
             mode: .scroll,
-            y: 386
+            y: 464
         )
         addShortcutRow(
             name: "文字提取（OCR）",
@@ -127,23 +137,23 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: ocrRecorder,
             status: ocrStatus,
             mode: .ocr,
-            y: 480
+            y: 554
         )
 
-        forceTapBox.frame = NSRect(x: 24, y: 594, width: 584, height: 20)
+        forceTapBox.frame = NSRect(x: 24, y: 660, width: 584, height: 20)
         forceTapBox.target = self
         forceTapBox.action = #selector(toggleForceTap)
         content.addSubview(forceTapBox)
 
         let forceHint = NSTextField(labelWithString: "强力模式会占用辅助功能权限；滚动截图自动滚动也需要辅助功能授权。F1/F2 这类系统功能键任何 app 都抢不到。")
-        forceHint.frame = NSRect(x: 24, y: 620, width: 584, height: 30)
+        forceHint.frame = NSRect(x: 24, y: 686, width: 584, height: 30)
         forceHint.font = .systemFont(ofSize: 10.5)
         forceHint.textColor = .secondaryLabelColor
         forceHint.lineBreakMode = .byWordWrapping
         forceHint.maximumNumberOfLines = 2
         content.addSubview(forceHint)
 
-        axButton.frame = NSRect(x: 24, y: 660, width: 150, height: 30)
+        axButton.frame = NSRect(x: 24, y: 724, width: 150, height: 30)
         axButton.bezelStyle = .rounded
         axButton.target = self
         axButton.action = #selector(openAX)
@@ -246,14 +256,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         sidebar.addSubview(privacyPageButton)
 
         let hint = NSTextField(
-            wrappingLabelWithString: "AI 设置用于配置大模型接口、提示词和隐私告知；快捷键页用于录制五种截图按键；隐私与数据页用于查看权限、数据位置、删除数据和撤回同意。"
+            wrappingLabelWithString: "AI 设置用于配置大模型接口、提示词和隐私告知；快捷键页用于录制六种截图按键；隐私与数据页用于查看权限、数据位置、删除数据和撤回同意。"
         )
         hint.font = .systemFont(ofSize: 10)
         hint.textColor = .secondaryLabelColor
         hint.frame = NSRect(x: 22, y: 494, width: 176, height: 112)
         sidebar.addSubview(hint)
 
-        let version = NSTextField(labelWithString: "v1.0.0")
+        let version = NSTextField(labelWithString: "v1.1.0")
         version.font = .systemFont(ofSize: 10)
         version.textColor = .secondaryLabelColor
         version.frame = NSRect(x: 22, y: 18, width: 100, height: 16)
@@ -349,6 +359,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         manager.onStatusChange = { [weak self] statuses in self?.render(statuses) }
 
         saveRecorder.config = manager.settings.save
+        annotationRecorder.config = manager.settings.annotation
         pinRecorder.config = manager.settings.pin
         appRecorder.config = manager.settings.app
         scrollRecorder.config = manager.settings.scroll
@@ -431,13 +442,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             settings.scroll = config
         case .ocr:
             settings.ocr = config
-        case .ai, .aiTranslate:
-            // AI 识别和截图翻译不设快捷键，不参与录制。
+        case .annotate:
+            settings.annotation = config
+        case .ai, .aiTranslate, .annotateWindow:
+            // AI 识别、截图翻译和窗口标注不单独录制快捷键。
             return
         }
         manager.update(settings)
 
         saveRecorder.config = settings.save
+        annotationRecorder.config = settings.annotation
         pinRecorder.config = settings.pin
         appRecorder.config = settings.app
         scrollRecorder.config = settings.scroll
@@ -448,22 +462,24 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private func recorder(for mode: CaptureMode) -> RecorderView {
         switch mode {
         case .save: return saveRecorder
+        case .annotate: return annotationRecorder
         case .pin: return pinRecorder
         case .app: return appRecorder
         case .scroll: return scrollRecorder
         case .ocr: return ocrRecorder
-        case .ai, .aiTranslate: return saveRecorder
+        case .ai, .aiTranslate, .annotateWindow: return saveRecorder
         }
     }
 
     private func hotkey(for mode: CaptureMode, in settings: AppSettings) -> HotkeyConfig {
         switch mode {
         case .save: return settings.save
+        case .annotate: return settings.annotation
         case .pin: return settings.pin
         case .app: return settings.app
         case .scroll: return settings.scroll
         case .ocr: return settings.ocr
-        case .ai, .aiTranslate: return settings.save
+        case .ai, .aiTranslate, .annotateWindow: return settings.save
         }
     }
 
@@ -477,27 +493,38 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             if config == settings.app { return "与应用窗口截图键相同" }
             if config == settings.scroll { return "与滚动截图键相同" }
             if config == settings.ocr { return "与文字提取（OCR）键相同" }
+            if config == settings.annotation { return "与标注截图键相同" }
         case .pin:
             if config == settings.save { return "与框选截图键相同" }
             if config == settings.app { return "与应用窗口截图键相同" }
             if config == settings.scroll { return "与滚动截图键相同" }
             if config == settings.ocr { return "与文字提取（OCR）键相同" }
+            if config == settings.annotation { return "与标注截图键相同" }
         case .app:
             if config == settings.pin { return "与截图并贴图键相同" }
             if config == settings.save { return "与框选截图键相同" }
             if config == settings.scroll { return "与滚动截图键相同" }
             if config == settings.ocr { return "与文字提取（OCR）键相同" }
+            if config == settings.annotation { return "与标注截图键相同" }
         case .scroll:
             if config == settings.pin { return "与截图并贴图键相同" }
             if config == settings.save { return "与框选截图键相同" }
             if config == settings.app { return "与应用窗口截图键相同" }
             if config == settings.ocr { return "与文字提取（OCR）键相同" }
+            if config == settings.annotation { return "与标注截图键相同" }
         case .ocr:
             if config == settings.pin { return "与截图并贴图键相同" }
             if config == settings.save { return "与框选截图键相同" }
             if config == settings.app { return "与应用窗口截图键相同" }
             if config == settings.scroll { return "与滚动截图键相同" }
-        case .ai, .aiTranslate:
+            if config == settings.annotation { return "与标注截图键相同" }
+        case .annotate:
+            if config == settings.pin { return "与截图并贴图键相同" }
+            if config == settings.save { return "与框选截图键相同" }
+            if config == settings.app { return "与应用窗口截图键相同" }
+            if config == settings.scroll { return "与滚动截图键相同" }
+            if config == settings.ocr { return "与文字提取（OCR）键相同" }
+        case .ai, .aiTranslate, .annotateWindow:
             return nil
         }
 
@@ -506,12 +533,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         if config == .appBackup { return "这是应用窗口截图备用键 ⌥⇧3" }
         if config == .scrollBackup { return "这是滚动截图备用键 ⌥⇧6" }
         if config == .ocrBackup { return "这是文字提取（OCR）备用键 ⌥⇧2" }
+        if config == .annotationBackup { return "这是标注截图备用键 ⌥⇧7" }
         return nil
     }
 
     private func render(_ statuses: HotkeyManager.Statuses) {
         let settings = manager?.settings ?? .default
         saveStatus.stringValue = describe(statuses.save, config: settings.save, alt: statuses.saveAlt, altLabel: "⌥⇧5")
+        annotationStatus.stringValue = describe(
+            statuses.annotation, config: settings.annotation, alt: statuses.annotationAlt, altLabel: "⌥⇧7")
         pinStatus.stringValue = describe(statuses.pin, config: settings.pin, alt: statuses.pinAlt, altLabel: "⌥⇧4")
         appStatus.stringValue = describe(statuses.app, config: settings.app, alt: statuses.appAlt, altLabel: "⌥⇧3")
         scrollStatus.stringValue = describe(
@@ -557,11 +587,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         var settings = manager.settings
         settings.pin = .pinDefault
         settings.save = .saveDefault
+        settings.annotation = .annotationDefault
         settings.app = .appDefault
         settings.scroll = .scrollDefault
         settings.ocr = .ocrDefault
         manager.update(settings)
         saveRecorder.config = settings.save
+        annotationRecorder.config = settings.annotation
         pinRecorder.config = settings.pin
         appRecorder.config = settings.app
         scrollRecorder.config = settings.scroll

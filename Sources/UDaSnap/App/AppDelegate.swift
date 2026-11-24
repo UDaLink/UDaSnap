@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hotkey: HotkeyManager?
     private var selection: RegionSelectionController?
     private let pinStore = PinStore()
+    private var annotationCoordinator: AnnotationCoordinator?
     private var complianceObservers: [NSObjectProtocol] = []
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -20,12 +21,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let selection = RegionSelectionController(pinStore: pinStore)
         self.selection = selection
-        // 截图模式保存成功后闪一下菜单栏图标。
+        let annotationCoordinator = AnnotationCoordinator(pinStore: pinStore)
+        self.annotationCoordinator = annotationCoordinator
+        // 截图模式保存成功后闪一下菜单栏图标；标注完成也复用同一个反馈。
         selection.onSaved = { [weak menuBar] success in
             guard success else { return }
             menuBar?.flash()
         }
+        annotationCoordinator.onSaved = selection.onSaved
+        selection.onAnnotate = { [weak annotationCoordinator] image, scale, origin, screen in
+            annotationCoordinator?.present(
+                image: image, contentScale: scale, screen: screen, pinOrigin: origin)
+        }
 
+        menuBar.onAnnotateRegion = { selection.begin(mode: .annotate) }
+        menuBar.onAnnotateWindow = { selection.begin(mode: .annotateWindow) }
+        menuBar.onAnnotateFullScreen = { [weak self] screen in
+            self?.captureFullScreen(on: screen, menuBar: nil, annotate: true)
+        }
         menuBar.onCapture = { selection.begin(mode: .save) }
         menuBar.onCaptureFullScreen = { [weak self, weak menuBar] screen in
             self?.captureFullScreen(on: screen, menuBar: menuBar)
@@ -46,11 +59,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hotkey.onFireApp = { selection.begin(mode: .app) }
         hotkey.onFireScroll = { selection.begin(mode: .scroll) }
         hotkey.onFireOCR = { selection.begin(mode: .ocr) }
+        hotkey.onFireAnnotation = { selection.begin(mode: .annotate) }
         // 配置一变就刷新菜单，录制期间（热键暂停注册）也一样，菜单显示的始终是最新键位。
         hotkey.onSettingsChange = { [weak menuBar] settings in
             menuBar?.updateHotkeys(
                 pin: settings.pin, save: settings.save, app: settings.app,
-                scroll: settings.scroll, ocr: settings.ocr)
+                scroll: settings.scroll, ocr: settings.ocr, annotation: settings.annotation)
         }
         menuBar.onOpenSettings = { [weak self] in
             guard let self else { return }
@@ -73,7 +87,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             save: hotkey.settings.save,
             app: hotkey.settings.app,
             scroll: hotkey.settings.scroll,
-            ocr: hotkey.settings.ocr
+            ocr: hotkey.settings.ocr,
+            annotation: hotkey.settings.annotation
         )
 
         installComplianceObservers()
@@ -134,6 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func presentOnboarding(flushSettings: Bool = true) {
         hotkey?.stop()
         selection?.cancelAll()
+        annotationCoordinator?.dismiss()
         pinStore.closeAll()
         AIResultWindowController.closeAllForConsentRevocation()
         OCRResultWindowController.closeAllForConsentRevocation()
@@ -211,7 +227,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// 立即截取整块屏幕（含菜单栏与 Dock），复制并保存，不贴图。
-    private func captureFullScreen(on screen: NSScreen, menuBar: MenuBarController?) {
+    private func captureFullScreen(on screen: NSScreen, menuBar: MenuBarController?, annotate: Bool = false) {
         guard AppEnvironment.shared.compliance.isAccepted else {
             presentOnboarding()
             return
@@ -223,7 +239,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         // 菜单项点击后菜单还在收起；等它完全消失再截，避免把菜单本身截进去。
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak menuBar] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self, weak menuBar] in
             guard let image = CaptureService.capture(screen: screen) else {
                 NSSound.beep()
                 HUDController.shared.show(
@@ -232,6 +248,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     at: NSEvent.mouseLocation,
                     success: false
                 )
+                return
+            }
+
+            if annotate {
+                self?.annotationCoordinator?.present(
+                    image: image,
+                    contentScale: screen.backingScaleFactor,
+                    screen: screen,
+                    pinOrigin: NSEvent.mouseLocation)
                 return
             }
 

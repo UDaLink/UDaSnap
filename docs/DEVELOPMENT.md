@@ -41,7 +41,7 @@ SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" bash ./build.sh insta
 
 1. 构建 Universal release（arm64 + x86_64）；
 2. 组装 `.app`；
-3. 写入 `Info.plist`（bundle id `com.udalink.udasnap`，版本 `1.0.0` / `1`）；
+3. 写入 `Info.plist`（bundle id `com.udalink.udasnap`，版本 `1.1.0` / `2`）；
 4. 复制图标和 `PRIVACY.md`、`TERMS.md` 到 `Contents/Resources/Legal/`；
 5. `codesign` 并验证。
 
@@ -51,7 +51,7 @@ SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" bash ./build.sh insta
 swift test
 ```
 
-测试只覆盖 `UDaSnapCore`。本机仅安装 Command Line Tools 时可能没有 XCTest；以 GitHub Actions 的 macOS runner 结果为准。
+测试只覆盖 `UDaSnapCore`，包括标注模型的编号、撤销/重做、裁剪、旋转、翻转与命中测试。本机仅安装 Command Line Tools 时可能没有 XCTest；以 GitHub Actions 的 macOS runner 结果为准。
 
 ## 格式
 
@@ -80,7 +80,9 @@ open dist/UDaSnap.app
 手动检查：
 
 - 菜单栏图标出现；
-- 五个热键可触发对应流程；
+- 六个热键可触发对应流程，标注热键默认 `⌃⇧6`；
+- 标注编辑器可打开，工具、样式、撤销/重做、文字、裁剪、旋转、翻转、隐私遮挡可用；
+- “完成”与“贴图”都能复制、保存最终 PNG，并确认 PNG 方向与像素尺寸；
 - 截图保存到 `~/Pictures/UDaSnap/`；
 - 偏好设置三页可打开；
 - 首次启动同意页与逐接口 AI 同意正常；
