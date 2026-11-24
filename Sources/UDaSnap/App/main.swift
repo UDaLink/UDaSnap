@@ -4,16 +4,23 @@ import UDaSnapCore
 // 无界面自检：截取主屏原始像素尺寸，验证 Retina 与权限链路，不弹任何窗口。
 if CommandLine.arguments.contains("--self-test") {
     let screen = NSScreen.main!
-    print("screen_points=\(screen.frame.size) backing_scale=\(screen.backingScaleFactor)")
-    print("screen_capture_permission=\(CaptureService.hasPermission)")
+    var lines = [
+        "screen_points=\(screen.frame.size)",
+        "backing_scale=\(screen.backingScaleFactor)",
+        "screen_capture_permission=\(CaptureService.hasPermission)",
+    ]
     if let img = CaptureService.capture(screen: screen) {
-        print("captured_pixels=\(img.width)x\(img.height)")
+        lines.append("captured_pixels=\(img.width)x\(img.height)")
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("udasnap-selftest.png")
         ScreenshotStorage.savePNG(img, to: out)
-        print("saved=\(out.path)")
+        lines.append("saved=\(out.path)")
     } else {
-        print("captured=nil（未授权时系统可能返回 nil 或壁纸）")
+        lines.append("captured=nil（未授权时系统可能返回 nil 或壁纸）")
     }
+    let report = lines.joined(separator: "\n") + "\n"
+    print(report, terminator: "")
+    try? report.write(
+        to: URL(fileURLWithPath: "/tmp/udasnap-selftest.txt"), atomically: true, encoding: .utf8)
     exit(0)
 }
 

@@ -16,7 +16,7 @@ APP_NAME="UDaSnap"
 EXEC_NAME="UDaSnap"
 BUNDLE_ID="com.udalink.udasnap"
 VERSION="${VERSION:-1.1.0}"
-BUILD_NUMBER="${BUILD_NUMBER:-2}"
+BUILD_NUMBER="${BUILD_NUMBER:-3}"
 DIST="$ROOT/dist"
 APP="$DIST/$APP_NAME.app"
 ARCH_FLAGS=(--arch arm64 --arch x86_64)
@@ -86,6 +86,16 @@ if [ "${1:-}" = "install" ]; then
     sleep 0.5
     rm -rf "/Applications/$APP_NAME.app"
     cp -R "$APP" "/Applications/$APP_NAME.app"
+
+    # 本机安装时优先用固定本地证书签名：TCC 屏幕录制权限绑定代码要求，
+    # ad-hoc 每次 rebuild 的 cdhash 都会变，授权会反复失效。分发仍用上面的
+    # ad-hoc / 环境指定签名，不把本地证书带进 Release 产物。
+    LOCAL_SIGN_IDENTITY="${LOCAL_SIGN_IDENTITY:-PinShot Local}"
+    if [ "$SIGN_IDENTITY" = "-" ] && security find-identity -v -p codesigning | grep -Fq "$LOCAL_SIGN_IDENTITY"; then
+        echo "==> Re-signing installed app with local identity ($LOCAL_SIGN_IDENTITY) for stable TCC access"
+        codesign --force --deep --sign "$LOCAL_SIGN_IDENTITY" "/Applications/$APP_NAME.app"
+        codesign --verify --verbose=2 "/Applications/$APP_NAME.app"
+    fi
     echo "Done: /Applications/$APP_NAME.app"
 else
     echo "Done: $APP"

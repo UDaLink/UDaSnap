@@ -1,6 +1,32 @@
 import Foundation
 import Security
 
+/// 系统钥匙串密码框是 App 之外的模态交互。用户在弹窗里点「允许」后，
+/// 关闭瞬间的键盘事件偶尔会落到 App 主菜单（表现为像闪退）。读取期间
+/// 以及读取结束后的一小段时间内，暂缓响应终止请求。
+@MainActor
+package enum KeychainInteraction {
+    private static var active = false
+    private static var releaseTask: Task<Void, Never>?
+
+    package static var isActive: Bool { active }
+
+    fileprivate static func begin() {
+        releaseTask?.cancel()
+        releaseTask = nil
+        active = true
+    }
+
+    fileprivate static func finish(after delay: Duration = .milliseconds(900)) {
+        releaseTask?.cancel()
+        releaseTask = Task { @MainActor in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled else { return }
+            active = false
+        }
+    }
+}
+
 @MainActor
 package enum KeychainStore {
     private static let service = "com.udalink.udasnap.ai"
@@ -155,6 +181,14 @@ package enum KeychainStore {
     package static func readResult(allowInteraction: Bool = false) -> ReadResult {
         if let cachedKey, !cachedKey.isEmpty {
             return .value(cachedKey)
+        }
+        if allowInteraction {
+            KeychainInteraction.begin()
+        }
+        defer {
+            if allowInteraction {
+                KeychainInteraction.finish()
+            }
         }
         let authorized = readAuthorizedResult()
         if case .value = authorized {

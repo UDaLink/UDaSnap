@@ -5,7 +5,7 @@ import UDaSnapCore
 
 /// 菜单栏入口：框选截图、全屏截图、应用窗口截图、滚动截图、截图并贴图、截图并翻译、文字提取（OCR）、文字提取-AI分析、偏好设置、目录、自启、权限状态、退出。
 @MainActor
-final class MenuBarController: NSObject {
+final class MenuBarController: NSObject, NSMenuDelegate {
 
     /// 框选截图（只保存，不贴图）
     var onCapture: (() -> Void)?
@@ -150,7 +150,20 @@ final class MenuBarController: NSObject {
         menu.addItem(quit)
 
         statusItem.menu = menu
-        statusItem.button?.appearsDisabled = !granted
+        menu.delegate = self
+        // 权限未授权时只把状态写进菜单，不要禁用状态栏图标本身；
+        // 否则用户点不到菜单，也就没法打开系统设置补授权。
+        statusItem.button?.appearsDisabled = false
+    }
+
+    /// 菜单每次打开都重新读取 TCC 状态，避免用户在系统设置里授权后
+    /// 菜单仍显示旧的「未授权」。
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === statusItem.menu else { return }
+        let granted = CaptureService.hasPermission
+        permissionItem?.title =
+            granted ? "屏幕录制：已授权" : "⚠️ 屏幕录制：未授权（点此去开）"
+        permissionItem?.action = granted ? nil : #selector(openPermission)
     }
 
     /// 用 NSMenuItem 原生快捷键列显示键位：AppKit 自动右对齐、统一灰色小字，

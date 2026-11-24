@@ -5,7 +5,7 @@
 
 UDaSnap 是一个 macOS 菜单栏截图工具。框选、标注、贴图、滚动长图、OCR、AI 理解与翻译，都在同一条从屏幕到结果的链路里完成。
 
-当前版本：`1.1.0` / build `2`。
+当前版本：`1.1.0` / build `3`。
 
 ![platform](https://img.shields.io/badge/platform-macOS%2014%2B-black)
 ![swift](https://img.shields.io/badge/Swift-6-orange)

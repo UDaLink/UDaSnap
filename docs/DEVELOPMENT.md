@@ -37,11 +37,19 @@ bash ./build.sh install    # 安装到 /Applications
 SIGN_IDENTITY="Developer ID Application: Example (TEAMID)" bash ./build.sh install
 ```
 
+`bash ./build.sh install` 在默认 ad-hoc 模式下，会优先用本机已有的 `PinShot Local` 证书重新签安装版（仅 `/Applications`，不改变 `dist` 的分发签名）。这样本机 Screen Recording / TCC 的代码要求和后续 rebuild 保持稳定；ad-hoc 每次 cdhash 变化会让授权反复失效。没有该证书时跳回 ad-hoc。
+
+若系统设置里已有旧的 UDaSnap 条目或授权残留，先清理当前 bundle 的屏幕录制记录再授权：
+
+```bash
+tccutil reset ScreenCapture com.udalink.udasnap
+```
+
 `build.sh` 会：
 
 1. 构建 Universal release（arm64 + x86_64）；
 2. 组装 `.app`；
-3. 写入 `Info.plist`（bundle id `com.udalink.udasnap`，版本 `1.1.0` / `2`）；
+3. 写入 `Info.plist`（bundle id `com.udalink.udasnap`，版本 `1.1.0` / `3`）；
 4. 复制图标和 `PRIVACY.md`、`TERMS.md` 到 `Contents/Resources/Legal/`；
 5. `codesign` 并验证。
 

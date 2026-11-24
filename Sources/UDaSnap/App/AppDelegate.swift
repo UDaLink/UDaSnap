@@ -11,6 +11,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var annotationCoordinator: AnnotationCoordinator?
     private var complianceObservers: [NSObjectProtocol] = []
 
+    /// 钥匙串密码框关闭瞬间可能把一次键盘事件落到主菜单的「退出」上。
+    /// 交互期间先拒绝终止请求，避免用户点「允许」后应用直接消失。
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if KeychainInteraction.isActive {
+            NSLog("[UDaSnap] termination deferred during keychain interaction")
+            return .terminateCancel
+        }
+        return .terminateNow
+    }
+
+    /// 偏好设置窗口关闭不代表退出；菜单栏图标仍然常驻。
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         installMainMenu()
@@ -175,6 +190,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         presentOnboarding()
     }
 
+    @objc private func openPreferences() {
+        guard let hotkey else { return }
+        guard AppEnvironment.shared.compliance.isAccepted else {
+            presentOnboarding()
+            return
+        }
+        SettingsWindowController.shared.show(manager: hotkey, page: .ai)
+    }
+
     /// 装上标准「编辑」菜单后，快捷键由主菜单转发给当前第一响应者。
     private func installMainMenu() {
         let mainMenu = NSMenu()
@@ -188,6 +212,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
             keyEquivalent: ""
         )
+        let prefs = appMenu.addItem(
+            withTitle: "偏好设置",
+            action: #selector(openPreferences),
+            keyEquivalent: ","
+        )
+        prefs.target = self
         appMenu.addItem(.separator())
         appMenu.addItem(
             withTitle: "退出 UDaSnap",
