@@ -1,0 +1,68 @@
+name: Bug report
+description: Report a reproducible bug in UDaSnap.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not paste API keys, private screenshots, or security details. Security issues must use the private Security advisory.
+  - type: input
+    id: version
+    attributes:
+      label: UDaSnap version
+      description: Version and build from the menu bar or About panel.
+      placeholder: "1.0.0 / 1"
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and hardware
+      placeholder: "macOS 14.6, Apple Silicon"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Capture / region selection
+        - Window capture
+        - Scrolling capture
+        - OCR
+        - AI / translation
+        - Pin window
+        - Hotkeys
+        - Settings / onboarding
+        - Build / packaging
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Redact private data before attaching.

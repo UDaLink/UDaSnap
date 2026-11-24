@@ -1,0 +1,19 @@
+# SwiftPM 构建产物
+.build/
+dist/
+
+# 本地发布产物：安装包、磁盘镜像、归档
+*.zip
+*.dmg
+*.pkg
+
+# 本地专用目录：发布包、设计稿、发布草稿、上传暂存
+local-only/
+github-upload/
+
+# 本地文档草稿
+设计稿-*.md
+RELEASE_NOTES-*.md
+
+# macOS 杂项
+.DS_Store
