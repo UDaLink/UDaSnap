@@ -827,20 +827,39 @@ private final class PinActionRailView: NSView {
     private let translateHandler: () -> Void
     private var tracking: NSTrackingArea?
 
-    private static let railWidth: CGFloat = 104
+    private static let railWidth: CGFloat = 116
+    private static let rowHeight: CGFloat = 24
+    private static let rowSpacing: CGFloat = 4
+    private static let verticalPadding: CGFloat = 7
+    fileprivate static let horizontalInset: CGFloat = 10
 
     init(ocr: @escaping () -> Void, aiAnalyze: @escaping () -> Void, translate: @escaping () -> Void) {
         self.ocrHandler = ocr
         self.aiHandler = aiAnalyze
         self.translateHandler = translate
         super.init(frame: .zero)
-        wantsLayer = true
+
+        let backdrop = NSVisualEffectView()
+        backdrop.material = .popover
+        backdrop.blendingMode = .behindWindow
+        backdrop.state = .active
+        backdrop.appearance = NSAppearance(named: .aqua)
+        backdrop.wantsLayer = true
+        backdrop.layer?.cornerRadius = 9
+        backdrop.layer?.masksToBounds = true
+        backdrop.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(backdrop)
 
         let stack = NSStackView()
         stack.orientation = .vertical
-        stack.spacing = 3
-        stack.alignment = .trailing
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        stack.spacing = Self.rowSpacing
+        stack.alignment = .leading
+        stack.edgeInsets = NSEdgeInsets(
+            top: Self.verticalPadding,
+            left: 0,
+            bottom: Self.verticalPadding,
+            right: 0
+        )
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
 
@@ -855,6 +874,10 @@ private final class PinActionRailView: NSView {
         stack.addArrangedSubview(translateButton)
 
         NSLayoutConstraint.activate([
+            backdrop.leadingAnchor.constraint(equalTo: leadingAnchor),
+            backdrop.trailingAnchor.constraint(equalTo: trailingAnchor),
+            backdrop.topAnchor.constraint(equalTo: topAnchor),
+            backdrop.bottomAnchor.constraint(equalTo: bottomAnchor),
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
@@ -865,7 +888,10 @@ private final class PinActionRailView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var intrinsicContentSize: NSSize {
-        NSSize(width: Self.railWidth, height: 3 * 24 + 2 * 3)
+        NSSize(
+            width: Self.railWidth,
+            height: 3 * Self.rowHeight + 2 * Self.rowSpacing + 2 * Self.verticalPadding
+        )
     }
 
     private func makeButton(title: String, action: Selector) -> PinRailButton {
@@ -874,7 +900,7 @@ private final class PinActionRailView: NSView {
         button.action = action
         button.translatesAutoresizingMaskIntoConstraints = false
         button.widthAnchor.constraint(equalToConstant: Self.railWidth).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        button.heightAnchor.constraint(equalToConstant: Self.rowHeight).isActive = true
         return button
     }
 
@@ -925,18 +951,12 @@ private final class PinRailButton: NSControl {
 
     override func draw(_ dirtyRect: NSRect) {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.alignment = .right
+        paragraph.alignment = .left
         paragraph.lineBreakMode = .byTruncatingTail
 
-        let shadow = NSShadow()
-        shadow.shadowColor = NSColor.black.withAlphaComponent(0.72)
-        shadow.shadowBlurRadius = 3.5
-        shadow.shadowOffset = NSSize(width: 0, height: -1)
-
         var attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 11.5, weight: .medium),
-            .foregroundColor: NSColor.white.withAlphaComponent(pressed ? 0.72 : 0.96),
-            .shadow: shadow,
+            .font: NSFont.systemFont(ofSize: 11.5, weight: .semibold),
+            .foregroundColor: NSColor(calibratedWhite: 0.08, alpha: pressed ? 0.55 : 0.95),
             .paragraphStyle: paragraph,
         ]
         if hovered {
@@ -945,9 +965,9 @@ private final class PinRailButton: NSControl {
 
         let textSize = (titleText as NSString).size(withAttributes: attributes)
         let textRect = NSRect(
-            x: bounds.minX,
+            x: PinActionRailView.horizontalInset,
             y: (bounds.height - textSize.height) / 2,
-            width: bounds.width,
+            width: bounds.width - 2 * PinActionRailView.horizontalInset,
             height: textSize.height
         )
         (titleText as NSString).draw(in: textRect, withAttributes: attributes)
