@@ -3,10 +3,12 @@ import QuartzCore
 import ServiceManagement
 import UDaSnapCore
 
-/// 菜单栏入口：截图并贴图、框选截图、全屏截图、应用窗口截图、滚动截图、截图并翻译、文字提取（OCR）、文字提取-AI分析、偏好设置、目录、自启、权限状态、退出。
+/// 菜单栏入口：立即截图、截图并贴图、框选截图、全屏截图、应用窗口截图、滚动截图、截图并翻译、文字提取（OCR）、文字提取-AI分析、偏好设置、目录、自启、权限状态、退出。
 @MainActor
 final class MenuBarController: NSObject, NSMenuDelegate {
 
+    /// 立即截图（框选后保留选区，标注 / 贴图 / 取消）
+    var onImmediateCapture: (() -> Void)?
     /// 框选截图（只保存，不贴图）
     var onCapture: (() -> Void)?
     /// 全屏截图（截鼠标所在屏，只保存，不贴图）
@@ -38,11 +40,13 @@ final class MenuBarController: NSObject, NSMenuDelegate {
     private var fullScreenHotkey: HotkeyConfig = .fullScreenDefault
     private var appHotkey: HotkeyConfig = .appDefault
     private var scrollHotkey: HotkeyConfig = .scrollDefault
+    private var immediateHotkey: HotkeyConfig = .immediateDefault
     private var pinHotkeyTitle: String { pinHotkey.display }
     private var saveHotkeyTitle: String { saveHotkey.display }
     private var fullScreenHotkeyTitle: String { fullScreenHotkey.display }
     private var appHotkeyTitle: String { appHotkey.display }
     private var scrollHotkeyTitle: String { scrollHotkey.display }
+    private var immediateHotkeyTitle: String { immediateHotkey.display }
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var permissionItem: NSMenuItem?
@@ -58,12 +62,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         button.image = BrandMark.statusImage()
         button.toolTip =
-            "UDaSnap · 贴图 \(pinHotkeyTitle) / 截图 \(saveHotkeyTitle) / 全屏 \(fullScreenHotkeyTitle) / 应用 \(appHotkeyTitle) / 滚动 \(scrollHotkeyTitle)"
+            "UDaSnap · 立即 \(immediateHotkeyTitle) / 贴图 \(pinHotkeyTitle) / 截图 \(saveHotkeyTitle) / 全屏 \(fullScreenHotkeyTitle) / 应用 \(appHotkeyTitle) / 滚动 \(scrollHotkeyTitle)"
         button.wantsLayer = true
     }
 
     func rebuildMenu() {
         let menu = NSMenu()
+
+        let immediate = makeCaptureItem(
+            title: "立即截图", config: immediateHotkey, action: #selector(captureImmediate))
+        menu.addItem(immediate)
 
         let pin = makeCaptureItem(title: "截图并贴图", config: pinHotkey, action: #selector(capturePin))
         menu.addItem(pin)
@@ -237,6 +245,10 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         onAnnotateFullScreen?(screen)
     }
 
+    @objc private func captureImmediate() {
+        onImmediateCapture?()
+    }
+
     @objc private func capturePin() {
         onPinCapture?()
     }
@@ -273,16 +285,17 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     /// 快捷键变更后更新菜单、提示文案与工具提示。
     func updateHotkeys(
-        pin: HotkeyConfig, save: HotkeyConfig, fullScreen: HotkeyConfig, app: HotkeyConfig,
-        scroll: HotkeyConfig
+        immediate: HotkeyConfig, pin: HotkeyConfig, save: HotkeyConfig,
+        fullScreen: HotkeyConfig, app: HotkeyConfig, scroll: HotkeyConfig
     ) {
+        immediateHotkey = immediate
         pinHotkey = pin
         saveHotkey = save
         fullScreenHotkey = fullScreen
         appHotkey = app
         scrollHotkey = scroll
         statusItem.button?.toolTip =
-            "UDaSnap · 贴图 \(pin.display) / 截图 \(save.display) / 全屏 \(fullScreen.display) / 应用 \(app.display) / 滚动 \(scroll.display)"
+            "UDaSnap · 立即 \(immediate.display) / 贴图 \(pin.display) / 截图 \(save.display) / 全屏 \(fullScreen.display) / 应用 \(app.display) / 滚动 \(scroll.display)"
         rebuildMenu()
     }
 

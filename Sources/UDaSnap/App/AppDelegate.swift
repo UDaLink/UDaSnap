@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBar.onAnnotateFullScreen = { [weak self] screen in
             self?.captureFullScreen(on: screen, menuBar: nil, annotate: true)
         }
+        menuBar.onImmediateCapture = { selection.begin(mode: .immediate) }
         menuBar.onCapture = { selection.begin(mode: .save) }
         menuBar.onCaptureFullScreen = { [weak self, weak menuBar] screen in
             self?.captureFullScreen(on: screen, menuBar: menuBar)
@@ -93,6 +94,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hotkey = HotkeyManager(settings: SettingsFile.load())
         self.hotkey = hotkey
         hotkey.onFirePin = { selection.begin(mode: .pin) }
+        hotkey.onFireImmediate = { selection.begin(mode: .immediate) }
         hotkey.onFireSave = { selection.begin(mode: .save) }
         hotkey.onFireFullScreen = { [weak self, weak menuBar] in
             guard let self else { return }
@@ -105,8 +107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // 配置一变就刷新菜单，录制期间（热键暂停注册）也一样，菜单显示的始终是最新键位。
         hotkey.onSettingsChange = { [weak menuBar] settings in
             menuBar?.updateHotkeys(
-                pin: settings.pin, save: settings.save, fullScreen: settings.fullScreen,
-                app: settings.app, scroll: settings.scroll)
+                immediate: settings.immediate, pin: settings.pin, save: settings.save,
+                fullScreen: settings.fullScreen, app: settings.app, scroll: settings.scroll)
         }
         menuBar.onOpenSettings = { [weak self] in
             guard let self else { return }
@@ -125,6 +127,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             SettingsWindowController.shared.show(manager: hotkey, page: .ai)
         }
         menuBar.updateHotkeys(
+            immediate: hotkey.settings.immediate,
             pin: hotkey.settings.pin,
             save: hotkey.settings.save,
             fullScreen: hotkey.settings.fullScreen,

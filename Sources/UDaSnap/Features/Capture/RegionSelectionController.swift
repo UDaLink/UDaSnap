@@ -12,6 +12,7 @@ enum CaptureMode {
     case aiTranslate  // 框选区域 → 保存原图，智能合并换行后自动翻译
     case annotate  // 框选区域 → 打开标注编辑器，不直接保存
     case annotateWindow  // 点选窗口 → 打开标注编辑器
+    case immediate  // 框选后保留选区 → 标注 / 贴图 / 取消
 }
 
 // MARK: - 会话控制
@@ -58,7 +59,7 @@ final class RegionSelectionController: NSObject {
         switch mode {
         case .app, .annotateWindow:
             beginAppSelection()
-        case .pin, .save, .scroll, .ocr, .ai, .aiTranslate, .annotate:
+        case .pin, .save, .scroll, .ocr, .ai, .aiTranslate, .annotate, .immediate:
             beginRegionSelection(mode: mode)
         }
     }
@@ -107,14 +108,27 @@ final class RegionSelectionController: NSObject {
             hint = "拖拽框选 · 松手 AI 翻译"
         case .annotate:
             hint = "拖拽框选 · 松手进入标注"
+        case .immediate:
+            hint = "拖拽框选 · 松手选择标注或贴图"
         case .annotateWindow, .app:
             return
         }
 
         for (screen, image) in captured {
-            let overlay = OverlayWindow(screen: screen, image: image, hint: hint)
-            overlay.selectionView.onFinish = { [weak self] rect in
-                self?.finish(rect: rect, screen: screen, image: image, mode: mode)
+            let overlay = OverlayWindow(
+                screen: screen,
+                image: image,
+                hint: hint,
+                showsActionBar: mode == .immediate)
+            if mode == .immediate {
+                overlay.selectionView.onImmediateAction = { [weak self] action, rect in
+                    self?.finishImmediate(
+                        action: action, rect: rect, screen: screen, image: image)
+                }
+            } else {
+                overlay.selectionView.onFinish = { [weak self] rect in
+                    self?.finish(rect: rect, screen: screen, image: image, mode: mode)
+                }
             }
             overlay.selectionView.onCancel = { [weak self] in self?.teardown() }
             overlays.append(overlay)
@@ -126,6 +140,7 @@ final class RegionSelectionController: NSObject {
         let mouse = NSEvent.mouseLocation
         if let current = overlays.first(where: { $0.frame.contains(mouse) }) ?? overlays.first {
             current.makeKey()
+            current.makeFirstResponder(current.selectionView)
         }
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -200,11 +215,7 @@ final class RegionSelectionController: NSObject {
         teardown()
 
         if mode == .annotate {
-            let pixelScale = CGFloat(cropped.width) / max(rect.width, 1)
-            let origin = CGPoint(
-                x: screen.frame.minX + rect.minX,
-                y: screen.frame.minY + rect.minY)
-            onAnnotate?(cropped, pixelScale, origin, screen)
+            presentAnnotator(image: cropped, rect: rect, screen: screen)
             return
         }
 
@@ -263,50 +274,99 @@ final class RegionSelectionController: NSObject {
             return
         }
 
-        let clipboardData = ScreenshotStorage.copyToClipboard(cropped)
-        let saved = ScreenshotStorage.savePNG(cropped)
-
         switch mode {
         case .pin:
-            let globalOrigin = CGPoint(
-                x: screen.frame.minX + rect.minX,
-                y: screen.frame.minY + rect.minY)
-            let pin = PinWindowController(
-                image: cropped,
-                savedURL: saved,
-                clipboardData: clipboardData,
-                origin: globalOrigin,
-                onScreen: screen)
-            pinStore.add(pin)
+            commitPin(image: cropped, rect: rect, screen: screen)
 
         case .save:
-            let size = "\(cropped.width) × \(cropped.height)"
-            if saved != nil {
-                HUDController.shared.show(title: "已保存", detail: size, at: NSEvent.mouseLocation, success: true)
-                let pixelScale = CGFloat(cropped.width) / max(rect.width, 1)
-                let origin = CGPoint(
-                    x: screen.frame.minX + rect.minX,
-                    y: screen.frame.minY + rect.minY)
-                ScreenshotThumbnailCenter.shared.show(
-                    ScreenshotThumbnailItem(
-                        image: cropped,
-                        savedURL: saved,
-                        clipboardData: clipboardData,
-                        screen: screen,
-                        contentScale: pixelScale,
-                        pinOrigin: origin,
-                        createdAt: Date()
-                    ))
-                onSaved?(true)
-            } else {
-                HUDController.shared.show(
-                    title: "保存失败", detail: "检查 ~/Pictures/UDaSnap 的写入权限",
-                    at: NSEvent.mouseLocation, success: false)
-                onSaved?(false)
-            }
+            commitSave(image: cropped, rect: rect, screen: screen)
 
-        case .app, .scroll, .ocr, .ai, .aiTranslate, .annotate, .annotateWindow:
+        case .app, .scroll, .ocr, .ai, .aiTranslate, .annotate, .annotateWindow, .immediate:
             break
+        }
+    }
+
+    /// “立即截图”的保留选区操作。只有真正执行标注 / 贴图 / 保存时才裁剪并收起遮罩，
+    /// 取消操作直接结束，不产生截图文件，也不碰剪贴板。
+    private func finishImmediate(
+        action: ImmediateSelectionAction, rect: CGRect, screen: NSScreen, image: CGImage
+    ) {
+        if action == .cancel {
+            teardown()
+            return
+        }
+
+        guard let cropped = CaptureService.crop(image: image, selection: rect, screen: screen) else {
+            NSSound.beep()
+            teardown()
+            return
+        }
+        teardown()
+
+        switch action {
+        case .annotate:
+            presentAnnotator(image: cropped, rect: rect, screen: screen)
+        case .pin:
+            commitPin(image: cropped, rect: rect, screen: screen)
+        case .save:
+            commitSave(image: cropped, rect: rect, screen: screen)
+        case .cancel:
+            break
+        }
+    }
+
+    private func presentAnnotator(image: CGImage, rect: CGRect, screen: NSScreen) {
+        let pixelScale = CGFloat(image.width) / max(rect.width, 1)
+        let origin = CGPoint(
+            x: screen.frame.minX + rect.minX,
+            y: screen.frame.minY + rect.minY)
+        onAnnotate?(image, pixelScale, origin, screen)
+    }
+
+    /// 和现有“截图并贴图”一致：复制、落盘，再以选区全局原点生成贴图。
+    private func commitPin(image: CGImage, rect: CGRect, screen: NSScreen) {
+        let clipboardData = ScreenshotStorage.copyToClipboard(image)
+        let saved = ScreenshotStorage.savePNG(image)
+        let globalOrigin = CGPoint(
+            x: screen.frame.minX + rect.minX,
+            y: screen.frame.minY + rect.minY)
+        let pin = PinWindowController(
+            image: image,
+            savedURL: saved,
+            clipboardData: clipboardData,
+            origin: globalOrigin,
+            onScreen: screen)
+        pinStore.add(pin)
+    }
+
+    /// 和现有“框选截图”一致：复制、落盘、HUD 与右下角缩略图。
+    private func commitSave(image: CGImage, rect: CGRect, screen: NSScreen) {
+        let clipboardData = ScreenshotStorage.copyToClipboard(image)
+        let saved = ScreenshotStorage.savePNG(image)
+        if saved != nil {
+            let size = "\(image.width) × \(image.height)"
+            HUDController.shared.show(
+                title: "已保存", detail: size, at: NSEvent.mouseLocation, success: true)
+            let pixelScale = CGFloat(image.width) / max(rect.width, 1)
+            let origin = CGPoint(
+                x: screen.frame.minX + rect.minX,
+                y: screen.frame.minY + rect.minY)
+            ScreenshotThumbnailCenter.shared.show(
+                ScreenshotThumbnailItem(
+                    image: image,
+                    savedURL: saved,
+                    clipboardData: clipboardData,
+                    screen: screen,
+                    contentScale: pixelScale,
+                    pinOrigin: origin,
+                    createdAt: Date()
+                ))
+            onSaved?(true)
+        } else {
+            HUDController.shared.show(
+                title: "保存失败", detail: "检查 ~/Pictures/UDaSnap 的写入权限",
+                at: NSEvent.mouseLocation, success: false)
+            onSaved?(false)
         }
     }
 
@@ -349,11 +409,12 @@ final class RegionSelectionController: NSObject {
 final class OverlayWindow: NSWindow {
     let selectionView: SelectionView
 
-    init(screen: NSScreen, image: CGImage, hint: String) {
+    init(screen: NSScreen, image: CGImage, hint: String, showsActionBar: Bool = false) {
         let view = SelectionView(
             frame: NSRect(origin: .zero, size: screen.frame.size),
             image: image,
-            hint: hint)
+            hint: hint,
+            showsActionBar: showsActionBar)
         self.selectionView = view
         super.init(
             contentRect: screen.frame,
@@ -375,7 +436,15 @@ final class OverlayWindow: NSWindow {
     override var canBecomeMain: Bool { true }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { selectionView.onCancel?() }  // Esc
+        if event.keyCode == 53 {
+            selectionView.onCancel?()
+            return
+        }
+        if event.keyCode == 36 || event.keyCode == 76 {
+            selectionView.handleReturnKey()
+            return
+        }
+        super.keyDown(with: event)
     }
 }
 
@@ -386,18 +455,41 @@ final class SelectionView: NSView {
 
     var onFinish: ((CGRect) -> Void)?
     var onCancel: (() -> Void)?
+    var onImmediateAction: ((ImmediateSelectionAction, CGRect) -> Void)?
+
+    private enum DragMode: Equatable {
+        case newSelection
+        case move
+        case resize(Handle)
+    }
 
     private let image: CGImage
     private let hint: String
+    private let showsActionBar: Bool
+    private let actionBar: ImmediateSelectionBarView?
     private var dragStart: CGPoint?
+    private var dragMode: DragMode?
+    private var initialRect: CGRect = .zero
+    private var initialPoint: CGPoint = .zero
     private var selection: CGRect = .zero
+    private var selectionIsComplete = false
+    private var actionBarInsideSelection = false
     private var mouse: CGPoint = .zero
     private var tracking: NSTrackingArea?
 
-    init(frame: NSRect, image: CGImage, hint: String) {
+    init(frame: NSRect, image: CGImage, hint: String, showsActionBar: Bool = false) {
         self.image = image
         self.hint = hint
+        self.showsActionBar = showsActionBar
+        self.actionBar = showsActionBar ? ImmediateSelectionBarView(frame: .zero) : nil
         super.init(frame: frame)
+        if let actionBar {
+            actionBar.onAction = { [weak self] action in
+                self?.handleAction(action)
+            }
+            actionBar.isHidden = true
+            addSubview(actionBar)
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -464,8 +556,19 @@ final class SelectionView: NSView {
         // 尺寸用物理像素显示，Retina 上是 point 的 2 倍。
         let scale = CGFloat(image.width) / bounds.width
         let label = "\(Int(selection.width * scale)) × \(Int(selection.height * scale))"
-        var origin = CGPoint(x: selection.minX, y: selection.maxY + 10)
-        if origin.y > bounds.height - 30 { origin.y = selection.minY - 32 }
+
+        var origin: CGPoint
+        if selectionIsComplete {
+            // 完成后操作条在选区外，尺寸标签收进选区左上角，避免和操作条抢位置。
+            if actionBarInsideSelection {
+                origin = CGPoint(x: selection.minX + 8, y: selection.minY + 8)
+            } else {
+                origin = CGPoint(x: selection.minX + 8, y: selection.maxY - 28)
+            }
+        } else {
+            origin = CGPoint(x: selection.minX, y: selection.maxY + 10)
+            if origin.y > bounds.height - 30 { origin.y = selection.minY - 32 }
+        }
         drawHint(label, at: origin)
     }
 
@@ -502,53 +605,276 @@ final class SelectionView: NSView {
 
     override func mouseMoved(with event: NSEvent) {
         mouse = convert(event.locationInWindow, from: nil)
-        NSCursor.crosshair.set()
+        updateCursor(at: mouse)
         needsDisplay = true
     }
 
     override func mouseDown(with event: NSEvent) {
         let p = convert(event.locationInWindow, from: nil)
-        dragStart = p
+        window?.makeFirstResponder(self)
         mouse = p
-        selection = CGRect(x: p.x, y: p.y, width: 0, height: 0)
-        needsDisplay = true
+
+        guard showsActionBar else {
+            beginNewSelection(at: p)
+            return
+        }
+
+        if !actionBarInsideSelection, let actionBar, !actionBar.isHidden,
+            actionBar.frame.contains(p)
+        {
+            return
+        }
+
+        if selectionIsComplete, selection.width >= 4, selection.height >= 4 {
+            if let handle = handle(at: p) {
+                dragMode = .resize(handle)
+                initialRect = selection
+                initialPoint = p
+                dragStart = p
+                NSCursor.closedHand.set()
+                return
+            }
+            if selection.contains(p) {
+                dragMode = .move
+                initialRect = selection
+                initialPoint = p
+                dragStart = p
+                NSCursor.closedHand.set()
+                return
+            }
+        }
+
+        // 点选区外的空白处：立即清掉旧选区，开始新一次拖拽。
+        beginNewSelection(at: p)
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let start = dragStart else { return }
+        guard let mode = dragMode else { return }
         var p = convert(event.locationInWindow, from: nil)
         p.x = min(max(0, p.x), bounds.width)
         p.y = min(max(0, p.y), bounds.height)
         mouse = p
-        selection = CGRect(
-            x: min(start.x, p.x), y: min(start.y, p.y),
-            width: abs(p.x - start.x), height: abs(p.y - start.y)
-        )
+
+        switch mode {
+        case .newSelection:
+            guard let start = dragStart else { return }
+            selection = CGRect(
+                x: min(start.x, p.x), y: min(start.y, p.y),
+                width: abs(p.x - start.x), height: abs(p.y - start.y)
+            )
+        case .move:
+            let dx = p.x - initialPoint.x
+            let dy = p.y - initialPoint.y
+            var rect = initialRect.offsetBy(dx: dx, dy: dy)
+            rect.origin.x = min(max(0, rect.origin.x), bounds.width - rect.width)
+            rect.origin.y = min(max(0, rect.origin.y), bounds.height - rect.height)
+            selection = rect
+        case .resize(let handle):
+            selection = resized(initialRect, handle: handle, to: p)
+        }
+
+        if selectionIsComplete {
+            layoutActionBar()
+        }
         needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
-        defer { dragStart = nil }
-        guard selection.width >= 4, selection.height >= 4 else {
-            selection = .zero  // 误点，不完成，重新框
-            needsDisplay = true
+        let hadMode = dragMode
+        dragMode = nil
+        dragStart = nil
+
+        guard showsActionBar else {
+            guard selection.width >= 4, selection.height >= 4 else {
+                selection = .zero
+                needsDisplay = true
+                return
+            }
+            onFinish?(selection)
             return
         }
-        onFinish?(selection)
+
+        if hadMode == .newSelection {
+            if selection.width >= 4, selection.height >= 4 {
+                selectionIsComplete = true
+                layoutActionBar()
+                actionBar?.isHidden = false
+            } else {
+                resetSelection()
+            }
+        } else if hadMode == nil {
+            // 只是点在选区内部/手柄上但没有拖动，保持原样。
+        } else if selection.width >= 4, selection.height >= 4 {
+            selectionIsComplete = true
+            layoutActionBar()
+            actionBar?.isHidden = false
+        } else {
+            resetSelection()
+        }
+
+        updateCursor(at: mouse)
+        needsDisplay = true
     }
 
     override func keyDown(with event: NSEvent) {
-        if event.keyCode == 53 { onCancel?() }
-        if event.keyCode == 36, selection.width >= 4, selection.height >= 4 {
+        if event.keyCode == 53 {
+            onCancel?()
+            return
+        }
+        if event.keyCode == 36 || event.keyCode == 76 {
+            handleReturnKey()
+        }
+    }
+
+    func handleReturnKey() {
+        guard selection.width >= 4, selection.height >= 4 else { return }
+        if showsActionBar {
+            guard selectionIsComplete else { return }
+            handleAction(.save)
+        } else {
             onFinish?(selection)
         }
     }
 
-    override func cursorUpdate(with event: NSEvent) { NSCursor.crosshair.set() }
+    override func cursorUpdate(with event: NSEvent) {
+        updateCursor(at: convert(event.locationInWindow, from: nil))
+    }
+
+    // MARK: 立即截图状态
+
+    private func beginNewSelection(at point: CGPoint) {
+        dragMode = .newSelection
+        dragStart = point
+        selection = CGRect(origin: point, size: .zero)
+        selectionIsComplete = false
+        actionBarInsideSelection = false
+        actionBar?.isHidden = true
+        needsDisplay = true
+    }
+
+    private func resetSelection() {
+        selection = .zero
+        selectionIsComplete = false
+        dragMode = nil
+        dragStart = nil
+        actionBarInsideSelection = false
+        actionBar?.isHidden = true
+        needsDisplay = true
+    }
+
+    private func handleAction(_ action: ImmediateSelectionAction) {
+        guard selection.width >= 4, selection.height >= 4 else { return }
+        if action != .cancel {
+            guard selectionIsComplete else { return }
+        }
+        onImmediateAction?(action, selection)
+    }
+
+    private func handle(at point: CGPoint) -> Handle? {
+        Handle.allCases.first { handle in
+            let center = handle.point(in: selection)
+            return CGRect(x: center.x - 7, y: center.y - 7, width: 14, height: 14).contains(point)
+        }
+    }
+
+    private func resized(_ rect: CGRect, handle: Handle, to point: CGPoint) -> CGRect {
+        var minX = rect.minX
+        var maxX = rect.maxX
+        var minY = rect.minY
+        var maxY = rect.maxY
+
+        switch handle {
+        case .nw:
+            minX = point.x
+            maxY = point.y
+        case .n:
+            maxY = point.y
+        case .ne:
+            maxX = point.x
+            maxY = point.y
+        case .e:
+            maxX = point.x
+        case .se:
+            maxX = point.x
+            minY = point.y
+        case .s:
+            minY = point.y
+        case .sw:
+            minX = point.x
+            minY = point.y
+        case .w:
+            minX = point.x
+        }
+
+        minX = min(max(0, minX), maxX - 4)
+        maxX = min(max(minX + 4, maxX), bounds.width)
+        minY = min(max(0, minY), maxY - 4)
+        maxY = min(max(minY + 4, maxY), bounds.height)
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+
+    private func layoutActionBar() {
+        guard let actionBar, selectionIsComplete, selection.width >= 4, selection.height >= 4 else {
+            self.actionBar?.isHidden = true
+            return
+        }
+
+        let size = ImmediateSelectionBarView.preferredSize
+        let gap: CGFloat = 12
+        let margin: CGFloat = 8
+        var origin = CGPoint.zero
+        var inside = false
+
+        let centeredX = selection.midX - size.width / 2
+        let clampedX = min(
+            max(margin, centeredX), max(margin, bounds.width - size.width - margin))
+        let centeredY = selection.midY - size.height / 2
+        let clampedY = min(
+            max(margin, centeredY), max(margin, bounds.height - size.height - margin))
+
+        // 优先上方居中；否则下方、右侧、左侧；实在四边都放不下时贴选区顶部内侧。
+        if selection.maxY + gap + size.height <= bounds.maxY - margin {
+            origin = CGPoint(x: clampedX, y: selection.maxY + gap)
+        } else if selection.minY - gap - size.height >= margin {
+            origin = CGPoint(x: clampedX, y: selection.minY - gap - size.height)
+        } else if selection.maxX + gap + size.width <= bounds.maxX - margin {
+            origin = CGPoint(x: selection.maxX + gap, y: clampedY)
+        } else if selection.minX - gap - size.width >= margin {
+            origin = CGPoint(x: selection.minX - gap - size.width, y: clampedY)
+        } else {
+            inside = true
+            let proposedY = selection.maxY - size.height - 8
+            origin = CGPoint(
+                x: clampedX,
+                y: min(max(margin, proposedY), max(margin, bounds.height - size.height - margin)))
+        }
+
+        actionBarInsideSelection = inside
+        actionBar.frame = NSRect(origin: origin, size: size)
+        actionBar.isHidden = false
+    }
+
+    private func updateCursor(at point: CGPoint) {
+        guard showsActionBar, selectionIsComplete, selection.width >= 4, selection.height >= 4 else {
+            NSCursor.crosshair.set()
+            return
+        }
+        if let actionBar, !actionBar.isHidden, actionBar.frame.contains(point) {
+            NSCursor.arrow.set()
+            return
+        }
+        if let handle = handle(at: point) {
+            handle.cursor.set()
+        } else if selection.contains(point) {
+            NSCursor.openHand.set()
+        } else {
+            NSCursor.crosshair.set()
+        }
+    }
 }
 
 /// 选区与贴图缩放共用的 8 热区定义。
-enum Handle: CaseIterable {
+enum Handle: CaseIterable, Equatable {
     case nw, n, ne, e, se, s, sw, w
 
     func point(in rect: CGRect) -> CGPoint {

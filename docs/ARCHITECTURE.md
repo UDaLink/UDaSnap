@@ -2,7 +2,7 @@
 
 ## 目标
 
-UDaSnap 1.1.0 延续“截图即用”的分层：Core 负责可测试的标注模型与图像变换，App 负责画布、工具栏和窗口表现；后续功能仍按 **Core 纯逻辑 / App 表现层** 扩展。
+UDaSnap 1.2.0 延续“截图即用”的分层：Core 负责可测试的标注模型与图像变换，App 负责画布、工具栏和窗口表现；后续功能仍按 **Core 纯逻辑 / App 表现层** 扩展。
 
 ## 目录
 
@@ -60,6 +60,14 @@ docs/                          # 使用、架构、开发文档
 - 裁剪、左右 90° 旋转、水平翻转都会同步变换已有对象；文字与序号保持正向可读，只移动中心位置。
 - `AnnotationRenderer` 在导出时把基础图、所有对象与隐私遮挡绘制成一张 CGImage；马赛克/模糊/色块在导出阶段烘焙为像素。
 - App 层的 `AnnotationCanvasView` 负责选择、拖动、缩放、内联文字、裁剪选区与快捷键；`AnnotationEditorWindowController` 只管独立置顶窗口与工具栏布局。
+
+## 立即截图
+
+- `CaptureMode.immediate` 复用 `RegionSelectionController` 的全屏遮罩和截图缓存；拖拽结束后不立即 `teardown`。
+- `SelectionView` 在完成态维护 `.newSelection / .move / .resize(Handle)` 三种拖拽状态；鼠标抬起后保留八个手柄，操作条按选区位置实时布局。
+- `ImmediateSelectionBarView` 是独立于 `SelectionView` 的兄弟视图，避免被选区裁剪；浅色 `.popover` 毛玻璃 + 深色图标文字。
+- 真正执行标注、贴图或保存时才裁剪并关闭遮罩；取消和 `Esc` 直接结束，不产生文件或剪贴板副作用。
+- 标注复用 `AnnotationCoordinator`；贴图和保存复用现有贴图 / 缩略图路径。
 
 ## 并发
 

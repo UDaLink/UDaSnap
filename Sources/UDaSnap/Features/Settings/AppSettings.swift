@@ -37,7 +37,13 @@ struct HotkeyConfig: Codable, Equatable {
         carbonModifiers: UInt32(cmdKey)
     )
 
-    /// 固定备用键，不可录制：⌥⇧1 / ⌥⇧2 / ⌥⇧3 / ⌥⇧4 / ⌥⇧5
+    /// 立即截图默认值：⌘F6
+    static let immediateDefault = HotkeyConfig(
+        keyCode: UInt32(kVK_F6),
+        carbonModifiers: UInt32(cmdKey)
+    )
+
+    /// 固定备用键，不可录制：⌥⇧1 / ⌥⇧2 / ⌥⇧3 / ⌥⇧4 / ⌥⇧5 / ⌥⇧6
     static let pinBackup = HotkeyConfig(
         keyCode: UInt32(kVK_ANSI_1),
         carbonModifiers: UInt32(optionKey | shiftKey)
@@ -60,6 +66,11 @@ struct HotkeyConfig: Codable, Equatable {
 
     static let scrollBackup = HotkeyConfig(
         keyCode: UInt32(kVK_ANSI_5),
+        carbonModifiers: UInt32(optionKey | shiftKey)
+    )
+
+    static let immediateBackup = HotkeyConfig(
+        keyCode: UInt32(kVK_ANSI_6),
         carbonModifiers: UInt32(optionKey | shiftKey)
     )
 
@@ -148,6 +159,7 @@ struct AppSettings: Codable, Equatable {
     var fullScreen: HotkeyConfig
     var app: HotkeyConfig
     var scroll: HotkeyConfig
+    var immediate: HotkeyConfig
     var forceTap: Bool
 
     static let `default` = AppSettings(
@@ -156,18 +168,20 @@ struct AppSettings: Codable, Equatable {
         fullScreen: .fullScreenDefault,
         app: .appDefault,
         scroll: .scrollDefault,
+        immediate: .immediateDefault,
         forceTap: false
     )
 
     init(
         pin: HotkeyConfig, save: HotkeyConfig, fullScreen: HotkeyConfig, app: HotkeyConfig,
-        scroll: HotkeyConfig, forceTap: Bool
+        scroll: HotkeyConfig, immediate: HotkeyConfig, forceTap: Bool
     ) {
         self.pin = pin
         self.save = save
         self.fullScreen = fullScreen
         self.app = app
         self.scroll = scroll
+        self.immediate = immediate
         self.forceTap = forceTap
     }
 
@@ -182,6 +196,8 @@ struct AppSettings: Codable, Equatable {
         case appCarbonModifiers
         case scrollKeyCode
         case scrollCarbonModifiers
+        case immediateKeyCode
+        case immediateCarbonModifiers
         case forceTap
     }
 
@@ -218,6 +234,14 @@ struct AppSettings: Codable, Equatable {
             ?? HotkeyConfig.scrollDefault.carbonModifiers
         self.scroll = HotkeyConfig(keyCode: scrollKey, carbonModifiers: scrollMods)
 
+        let immediateKey =
+            try c.decodeIfPresent(UInt32.self, forKey: .immediateKeyCode)
+            ?? HotkeyConfig.immediateDefault.keyCode
+        let immediateMods =
+            try c.decodeIfPresent(UInt32.self, forKey: .immediateCarbonModifiers)
+            ?? HotkeyConfig.immediateDefault.carbonModifiers
+        self.immediate = HotkeyConfig(keyCode: immediateKey, carbonModifiers: immediateMods)
+
         self.forceTap = try c.decodeIfPresent(Bool.self, forKey: .forceTap) ?? false
     }
 
@@ -233,6 +257,8 @@ struct AppSettings: Codable, Equatable {
         try c.encode(app.carbonModifiers, forKey: .appCarbonModifiers)
         try c.encode(scroll.keyCode, forKey: .scrollKeyCode)
         try c.encode(scroll.carbonModifiers, forKey: .scrollCarbonModifiers)
+        try c.encode(immediate.keyCode, forKey: .immediateKeyCode)
+        try c.encode(immediate.carbonModifiers, forKey: .immediateCarbonModifiers)
         try c.encode(forceTap, forKey: .forceTap)
     }
 }
@@ -264,11 +290,12 @@ enum SettingsFile {
             migrated.fullScreen = .fullScreenDefault
             migrated.app = .appDefault
             migrated.scroll = .scrollDefault
+            migrated.immediate = .immediateDefault
             save(migrated)
             return migrated
         }
 
-        // 已使用新配置，只清理废弃字段，不动用户的五组键位。
+        // 已使用新配置，只清理废弃字段，不动用户已有的键位。
         if var cleanObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             let removedAnnotationKey = cleanObject.removeValue(forKey: "annotationKeyCode") != nil
             let removedAnnotationModifiers = cleanObject.removeValue(forKey: "annotationCarbonModifiers") != nil

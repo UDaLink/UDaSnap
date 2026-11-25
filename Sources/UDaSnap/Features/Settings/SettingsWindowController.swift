@@ -8,8 +8,9 @@ enum PreferencesPage {
     case privacy
 }
 
-/// 快捷键页只负责这五套全局快捷键，与 CaptureMode 的截图流程无关。
+/// 快捷键页只负责这六套全局快捷键，与 CaptureMode 的截图流程无关。
 private enum ShortcutMode {
+    case immediate
     case pin
     case save
     case fullScreen
@@ -42,11 +43,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let fullScreenRecorder = RecorderView(frame: .zero)
     private let appRecorder = RecorderView(frame: .zero)
     private let scrollRecorder = RecorderView(frame: .zero)
+    private let immediateRecorder = RecorderView(frame: .zero)
     private let pinStatus = NSTextField(labelWithString: "")
     private let saveStatus = NSTextField(labelWithString: "")
     private let fullScreenStatus = NSTextField(labelWithString: "")
     private let appStatus = NSTextField(labelWithString: "")
     private let scrollStatus = NSTextField(labelWithString: "")
+    private let immediateStatus = NSTextField(labelWithString: "")
     private let forceTapBox = NSButton(checkboxWithTitle: "强力模式（占用辅助功能权限）", target: nil, action: nil)
     private let axButton = NSButton(title: "打开辅助功能设置", target: nil, action: nil)
 
@@ -99,12 +102,20 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
 
         addShortcutRow(
+            name: "立即截图",
+            detail: "框选后保留选区，可标注、贴图或按 Enter 复制保存",
+            recorder: immediateRecorder,
+            status: immediateStatus,
+            mode: .immediate,
+            y: 104
+        )
+        addShortcutRow(
             name: "截图并贴图",
             detail: "框选区域，贴成始终置顶的浮窗",
             recorder: pinRecorder,
             status: pinStatus,
             mode: .pin,
-            y: 104
+            y: 194
         )
         addShortcutRow(
             name: "框选截图",
@@ -112,7 +123,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: saveRecorder,
             status: saveStatus,
             mode: .save,
-            y: 194
+            y: 284
         )
         addShortcutRow(
             name: "全屏截图",
@@ -120,7 +131,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: fullScreenRecorder,
             status: fullScreenStatus,
             mode: .fullScreen,
-            y: 284
+            y: 374
         )
         addShortcutRow(
             name: "应用窗口截图",
@@ -128,7 +139,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: appRecorder,
             status: appStatus,
             mode: .app,
-            y: 374
+            y: 464
         )
         addShortcutRow(
             name: "滚动截图",
@@ -136,36 +147,36 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: scrollRecorder,
             status: scrollStatus,
             mode: .scroll,
-            y: 464
+            y: 554
         )
 
-        forceTapBox.frame = NSRect(x: 24, y: 570, width: 584, height: 20)
+        forceTapBox.frame = NSRect(x: 24, y: 660, width: 584, height: 20)
         forceTapBox.target = self
         forceTapBox.action = #selector(toggleForceTap)
         content.addSubview(forceTapBox)
 
         let forceHint = NSTextField(
-            labelWithString: "强力模式会占用辅助功能权限；滚动截图自动滚动也需要辅助功能授权。裸 F1–F5 会被系统功能键优先处理，建议始终搭配 ⌘ 等修饰键。")
-        forceHint.frame = NSRect(x: 24, y: 596, width: 584, height: 30)
+            labelWithString: "强力模式会占用辅助功能权限；滚动截图自动滚动也需要辅助功能授权。裸 F1–F6 会被系统功能键优先处理，建议始终搭配 ⌘ 等修饰键。")
+        forceHint.frame = NSRect(x: 24, y: 686, width: 584, height: 30)
         forceHint.font = .systemFont(ofSize: 10.5)
         forceHint.textColor = .secondaryLabelColor
         forceHint.lineBreakMode = .byWordWrapping
         forceHint.maximumNumberOfLines = 2
         content.addSubview(forceHint)
 
-        axButton.frame = NSRect(x: 24, y: 634, width: 150, height: 30)
+        axButton.frame = NSRect(x: 24, y: 724, width: 150, height: 30)
         axButton.bezelStyle = .rounded
         axButton.target = self
         axButton.action = #selector(openAX)
         content.addSubview(axButton)
 
         let reset = NSButton(title: "恢复默认", target: self, action: #selector(resetDefault))
-        reset.frame = NSRect(x: 24, y: 700, width: 100, height: 30)
+        reset.frame = NSRect(x: 24, y: 790, width: 100, height: 30)
         reset.bezelStyle = .rounded
         content.addSubview(reset)
 
         let close = NSButton(title: "完成", target: self, action: #selector(closeWindow))
-        close.frame = NSRect(x: 508, y: 700, width: 100, height: 30)
+        close.frame = NSRect(x: 508, y: 790, width: 100, height: 30)
         close.bezelStyle = .rounded
         close.keyEquivalent = "\r"
         content.addSubview(close)
@@ -256,14 +267,17 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         sidebar.addSubview(privacyPageButton)
 
         let hint = NSTextField(
-            wrappingLabelWithString: "AI 设置用于配置大模型接口、提示词和隐私告知；快捷键页用于录制五种截图按键；隐私与数据页用于查看权限、数据位置、删除数据和撤回同意。"
+            wrappingLabelWithString: "AI 设置用于配置大模型接口、提示词和隐私告知；快捷键页用于录制六种截图按键；隐私与数据页用于查看权限、数据位置、删除数据和撤回同意。"
         )
         hint.font = .systemFont(ofSize: 10)
         hint.textColor = .secondaryLabelColor
         hint.frame = NSRect(x: 22, y: 494, width: 176, height: 112)
         sidebar.addSubview(hint)
 
-        let version = NSTextField(labelWithString: "v1.1.0")
+        let versionText =
+            Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            ?? "1.2.0"
+        let version = NSTextField(labelWithString: "v\(versionText)")
         version.font = .systemFont(ofSize: 10)
         version.textColor = .secondaryLabelColor
         version.frame = NSRect(x: 22, y: 18, width: 100, height: 16)
@@ -363,6 +377,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         fullScreenRecorder.config = manager.settings.fullScreen
         appRecorder.config = manager.settings.app
         scrollRecorder.config = manager.settings.scroll
+        immediateRecorder.config = manager.settings.immediate
         forceTapBox.state = manager.settings.forceTap ? .on : .off
         render(manager.statuses)
         // 先切页但不读钥匙串，等窗口显示后再刷新；否则 Keychain 授权提示可能挂在无窗口的
@@ -431,6 +446,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         var settings = manager.settings
         switch mode {
+        case .immediate:
+            settings.immediate = config
         case .pin:
             settings.pin = config
         case .save:
@@ -444,6 +461,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
         manager.update(settings)
 
+        immediateRecorder.config = settings.immediate
         pinRecorder.config = settings.pin
         saveRecorder.config = settings.save
         fullScreenRecorder.config = settings.fullScreen
@@ -454,6 +472,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private func recorder(for mode: ShortcutMode) -> RecorderView {
         switch mode {
+        case .immediate: return immediateRecorder
         case .pin: return pinRecorder
         case .save: return saveRecorder
         case .fullScreen: return fullScreenRecorder
@@ -464,6 +483,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private func hotkey(for mode: ShortcutMode, in settings: AppSettings) -> HotkeyConfig {
         switch mode {
+        case .immediate: return settings.immediate
         case .pin: return settings.pin
         case .save: return settings.save
         case .fullScreen: return settings.fullScreen
@@ -476,6 +496,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         guard let manager else { return nil }
         let settings = manager.settings
         let candidates: [(ShortcutMode, String, HotkeyConfig)] = [
+            (.immediate, "立即截图", settings.immediate),
             (.pin, "截图并贴图", settings.pin),
             (.save, "框选截图", settings.save),
             (.fullScreen, "全屏截图", settings.fullScreen),
@@ -486,6 +507,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             if config == otherConfig { return "与\(name)键相同" }
         }
 
+        if config == .immediateBackup { return "这是立即截图备用键 ⌥⇧6" }
         if config == .pinBackup { return "这是截图并贴图备用键 ⌥⇧1" }
         if config == .saveBackup { return "这是框选截图备用键 ⌥⇧2" }
         if config == .fullScreenBackup { return "这是全屏截图备用键 ⌥⇧3" }
@@ -496,6 +518,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     private func render(_ statuses: HotkeyManager.Statuses) {
         let settings = manager?.settings ?? .default
+        immediateStatus.stringValue = describe(
+            statuses.immediate, config: settings.immediate, alt: statuses.immediateAlt, altLabel: "⌥⇧6")
         pinStatus.stringValue = describe(statuses.pin, config: settings.pin, alt: statuses.pinAlt, altLabel: "⌥⇧1")
         saveStatus.stringValue = describe(statuses.save, config: settings.save, alt: statuses.saveAlt, altLabel: "⌥⇧2")
         fullScreenStatus.stringValue = describe(
@@ -541,12 +565,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     @objc private func resetDefault() {
         guard let manager else { return }
         var settings = manager.settings
+        settings.immediate = .immediateDefault
         settings.pin = .pinDefault
         settings.save = .saveDefault
         settings.fullScreen = .fullScreenDefault
         settings.app = .appDefault
         settings.scroll = .scrollDefault
         manager.update(settings)
+        immediateRecorder.config = settings.immediate
         pinRecorder.config = settings.pin
         saveRecorder.config = settings.save
         fullScreenRecorder.config = settings.fullScreen
