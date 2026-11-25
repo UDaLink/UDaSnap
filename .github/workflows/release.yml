@@ -12,7 +12,9 @@ permissions:
 jobs:
   build:
     name: Universal app and assets
-    runs-on: macos-15
+    # arm64 macOS hosted runners can queue for a long time under capacity pressure.
+    # The Intel image builds the same universal binary and releases deterministically.
+    runs-on: macos-15-intel
     steps:
       - name: Checkout
         uses: actions/checkout@v4
