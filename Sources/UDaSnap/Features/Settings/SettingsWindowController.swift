@@ -8,6 +8,15 @@ enum PreferencesPage {
     case privacy
 }
 
+/// 快捷键页只负责这五套全局快捷键，与 CaptureMode 的截图流程无关。
+private enum ShortcutMode {
+    case pin
+    case save
+    case fullScreen
+    case app
+    case scroll
+}
+
 /// 统一偏好设置：左侧第一项 AI 设置，第二项快捷键。
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
@@ -28,16 +37,16 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let privacyPageButton = NSButton(title: "隐私与数据", target: nil, action: nil)
     private var currentPage: PreferencesPage = .ai
 
-    private let saveRecorder = RecorderView(frame: .zero)
     private let pinRecorder = RecorderView(frame: .zero)
+    private let saveRecorder = RecorderView(frame: .zero)
+    private let fullScreenRecorder = RecorderView(frame: .zero)
     private let appRecorder = RecorderView(frame: .zero)
     private let scrollRecorder = RecorderView(frame: .zero)
-    private let ocrRecorder = RecorderView(frame: .zero)
-    private let saveStatus = NSTextField(labelWithString: "")
     private let pinStatus = NSTextField(labelWithString: "")
+    private let saveStatus = NSTextField(labelWithString: "")
+    private let fullScreenStatus = NSTextField(labelWithString: "")
     private let appStatus = NSTextField(labelWithString: "")
     private let scrollStatus = NSTextField(labelWithString: "")
-    private let ocrStatus = NSTextField(labelWithString: "")
     private let forceTapBox = NSButton(checkboxWithTitle: "强力模式（占用辅助功能权限）", target: nil, action: nil)
     private let axButton = NSButton(title: "打开辅助功能设置", target: nil, action: nil)
 
@@ -90,20 +99,28 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
 
         addShortcutRow(
-            name: "框选截图",
-            detail: "框选区域，复制并保存原图，不贴图",
-            recorder: saveRecorder,
-            status: saveStatus,
-            mode: .save,
-            y: 104
-        )
-        addShortcutRow(
             name: "截图并贴图",
             detail: "框选区域，贴成始终置顶的浮窗",
             recorder: pinRecorder,
             status: pinStatus,
             mode: .pin,
+            y: 104
+        )
+        addShortcutRow(
+            name: "框选截图",
+            detail: "框选区域，复制并保存原图，不贴图",
+            recorder: saveRecorder,
+            status: saveStatus,
+            mode: .save,
             y: 194
+        )
+        addShortcutRow(
+            name: "全屏截图",
+            detail: "截取鼠标所在屏幕，复制并保存",
+            recorder: fullScreenRecorder,
+            status: fullScreenStatus,
+            mode: .fullScreen,
+            y: 284
         )
         addShortcutRow(
             name: "应用窗口截图",
@@ -111,7 +128,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: appRecorder,
             status: appStatus,
             mode: .app,
-            y: 284
+            y: 374
         )
         addShortcutRow(
             name: "滚动截图",
@@ -119,14 +136,6 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             recorder: scrollRecorder,
             status: scrollStatus,
             mode: .scroll,
-            y: 374
-        )
-        addShortcutRow(
-            name: "文字提取（OCR）",
-            detail: "框选文字区域，本地 Vision 识别并复制文字",
-            recorder: ocrRecorder,
-            status: ocrStatus,
-            mode: .ocr,
             y: 464
         )
 
@@ -135,7 +144,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         forceTapBox.action = #selector(toggleForceTap)
         content.addSubview(forceTapBox)
 
-        let forceHint = NSTextField(labelWithString: "强力模式会占用辅助功能权限；滚动截图自动滚动也需要辅助功能授权。F1/F2 这类系统功能键任何 app 都抢不到。")
+        let forceHint = NSTextField(
+            labelWithString: "强力模式会占用辅助功能权限；滚动截图自动滚动也需要辅助功能授权。裸 F1–F5 会被系统功能键优先处理，建议始终搭配 ⌘ 等修饰键。")
         forceHint.frame = NSRect(x: 24, y: 596, width: 584, height: 30)
         forceHint.font = .systemFont(ofSize: 10.5)
         forceHint.textColor = .secondaryLabelColor
@@ -174,7 +184,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         detail: String,
         recorder: RecorderView,
         status: NSTextField,
-        mode: CaptureMode,
+        mode: ShortcutMode,
         y: CGFloat
     ) {
         let content = shortcutView
@@ -319,7 +329,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         switchPage(.privacy, refresh: true)
     }
 
-    private func configure(_ recorder: RecorderView, mode: CaptureMode) {
+    private func configure(_ recorder: RecorderView, mode: ShortcutMode) {
         recorder.wantsLayer = true
         recorder.layer?.borderWidth = 1
         recorder.layer?.borderColor = NSColor.separatorColor.cgColor
@@ -348,11 +358,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         self.manager = manager
         manager.onStatusChange = { [weak self] statuses in self?.render(statuses) }
 
-        saveRecorder.config = manager.settings.save
         pinRecorder.config = manager.settings.pin
+        saveRecorder.config = manager.settings.save
+        fullScreenRecorder.config = manager.settings.fullScreen
         appRecorder.config = manager.settings.app
         scrollRecorder.config = manager.settings.scroll
-        ocrRecorder.config = manager.settings.ocr
         forceTapBox.state = manager.settings.forceTap ? .on : .off
         render(manager.statuses)
         // 先切页但不读钥匙串，等窗口显示后再刷新；否则 Keychain 授权提示可能挂在无窗口的
@@ -409,7 +419,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     // MARK: 应用配置
 
-    private func apply(_ config: HotkeyConfig, mode: CaptureMode) {
+    private func apply(_ config: HotkeyConfig, mode: ShortcutMode) {
         guard let manager else { return }
 
         if let conflict = conflictMessage(for: config, mode: mode) {
@@ -421,104 +431,78 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
         var settings = manager.settings
         switch mode {
-        case .save:
-            settings.save = config
         case .pin:
             settings.pin = config
+        case .save:
+            settings.save = config
+        case .fullScreen:
+            settings.fullScreen = config
         case .app:
             settings.app = config
         case .scroll:
             settings.scroll = config
-        case .ocr:
-            settings.ocr = config
-        case .annotate, .ai, .aiTranslate, .annotateWindow:
-            // AI 识别、截图翻译和窗口标注不单独录制快捷键。
-            return
         }
         manager.update(settings)
 
-        saveRecorder.config = settings.save
         pinRecorder.config = settings.pin
+        saveRecorder.config = settings.save
+        fullScreenRecorder.config = settings.fullScreen
         appRecorder.config = settings.app
         scrollRecorder.config = settings.scroll
-        ocrRecorder.config = settings.ocr
         render(manager.statuses)
     }
 
-    private func recorder(for mode: CaptureMode) -> RecorderView {
+    private func recorder(for mode: ShortcutMode) -> RecorderView {
         switch mode {
-        case .save: return saveRecorder
         case .pin: return pinRecorder
+        case .save: return saveRecorder
+        case .fullScreen: return fullScreenRecorder
         case .app: return appRecorder
         case .scroll: return scrollRecorder
-        case .ocr: return ocrRecorder
-        case .annotate, .ai, .aiTranslate, .annotateWindow: return saveRecorder
         }
     }
 
-    private func hotkey(for mode: CaptureMode, in settings: AppSettings) -> HotkeyConfig {
+    private func hotkey(for mode: ShortcutMode, in settings: AppSettings) -> HotkeyConfig {
         switch mode {
-        case .save: return settings.save
         case .pin: return settings.pin
+        case .save: return settings.save
+        case .fullScreen: return settings.fullScreen
         case .app: return settings.app
         case .scroll: return settings.scroll
-        case .ocr: return settings.ocr
-        case .annotate, .ai, .aiTranslate, .annotateWindow: return settings.save
         }
     }
 
-    private func conflictMessage(for config: HotkeyConfig, mode: CaptureMode) -> String? {
+    private func conflictMessage(for config: HotkeyConfig, mode: ShortcutMode) -> String? {
         guard let manager else { return nil }
         let settings = manager.settings
-
-        switch mode {
-        case .save:
-            if config == settings.pin { return "与截图并贴图键相同" }
-            if config == settings.app { return "与应用窗口截图键相同" }
-            if config == settings.scroll { return "与滚动截图键相同" }
-            if config == settings.ocr { return "与文字提取（OCR）键相同" }
-        case .pin:
-            if config == settings.save { return "与框选截图键相同" }
-            if config == settings.app { return "与应用窗口截图键相同" }
-            if config == settings.scroll { return "与滚动截图键相同" }
-            if config == settings.ocr { return "与文字提取（OCR）键相同" }
-        case .app:
-            if config == settings.pin { return "与截图并贴图键相同" }
-            if config == settings.save { return "与框选截图键相同" }
-            if config == settings.scroll { return "与滚动截图键相同" }
-            if config == settings.ocr { return "与文字提取（OCR）键相同" }
-        case .scroll:
-            if config == settings.pin { return "与截图并贴图键相同" }
-            if config == settings.save { return "与框选截图键相同" }
-            if config == settings.app { return "与应用窗口截图键相同" }
-            if config == settings.ocr { return "与文字提取（OCR）键相同" }
-        case .ocr:
-            if config == settings.pin { return "与截图并贴图键相同" }
-            if config == settings.save { return "与框选截图键相同" }
-            if config == settings.app { return "与应用窗口截图键相同" }
-            if config == settings.scroll { return "与滚动截图键相同" }
-        case .annotate:
-            return nil
-        case .ai, .aiTranslate, .annotateWindow:
-            return nil
+        let candidates: [(ShortcutMode, String, HotkeyConfig)] = [
+            (.pin, "截图并贴图", settings.pin),
+            (.save, "框选截图", settings.save),
+            (.fullScreen, "全屏截图", settings.fullScreen),
+            (.app, "应用窗口截图", settings.app),
+            (.scroll, "滚动截图", settings.scroll),
+        ]
+        for (otherMode, name, otherConfig) in candidates where otherMode != mode {
+            if config == otherConfig { return "与\(name)键相同" }
         }
 
-        if config == .pinBackup { return "这是截图并贴图备用键 ⌥⇧4" }
-        if config == .saveBackup { return "这是框选截图备用键 ⌥⇧5" }
-        if config == .appBackup { return "这是应用窗口截图备用键 ⌥⇧3" }
-        if config == .scrollBackup { return "这是滚动截图备用键 ⌥⇧6" }
-        if config == .ocrBackup { return "这是文字提取（OCR）备用键 ⌥⇧2" }
+        if config == .pinBackup { return "这是截图并贴图备用键 ⌥⇧1" }
+        if config == .saveBackup { return "这是框选截图备用键 ⌥⇧2" }
+        if config == .fullScreenBackup { return "这是全屏截图备用键 ⌥⇧3" }
+        if config == .appBackup { return "这是应用窗口截图备用键 ⌥⇧4" }
+        if config == .scrollBackup { return "这是滚动截图备用键 ⌥⇧5" }
         return nil
     }
 
     private func render(_ statuses: HotkeyManager.Statuses) {
         let settings = manager?.settings ?? .default
-        saveStatus.stringValue = describe(statuses.save, config: settings.save, alt: statuses.saveAlt, altLabel: "⌥⇧5")
-        pinStatus.stringValue = describe(statuses.pin, config: settings.pin, alt: statuses.pinAlt, altLabel: "⌥⇧4")
-        appStatus.stringValue = describe(statuses.app, config: settings.app, alt: statuses.appAlt, altLabel: "⌥⇧3")
+        pinStatus.stringValue = describe(statuses.pin, config: settings.pin, alt: statuses.pinAlt, altLabel: "⌥⇧1")
+        saveStatus.stringValue = describe(statuses.save, config: settings.save, alt: statuses.saveAlt, altLabel: "⌥⇧2")
+        fullScreenStatus.stringValue = describe(
+            statuses.fullScreen, config: settings.fullScreen, alt: statuses.fullScreenAlt, altLabel: "⌥⇧3")
+        appStatus.stringValue = describe(statuses.app, config: settings.app, alt: statuses.appAlt, altLabel: "⌥⇧4")
         scrollStatus.stringValue = describe(
-            statuses.scroll, config: settings.scroll, alt: statuses.scrollAlt, altLabel: "⌥⇧6")
-        ocrStatus.stringValue = describe(statuses.ocr, config: settings.ocr, alt: statuses.ocrAlt, altLabel: "⌥⇧2")
+            statuses.scroll, config: settings.scroll, alt: statuses.scrollAlt, altLabel: "⌥⇧5")
     }
 
     private func describe(_ status: HotkeyManager.Status, config: HotkeyConfig, alt: OSStatus, altLabel: String)
@@ -559,15 +543,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         var settings = manager.settings
         settings.pin = .pinDefault
         settings.save = .saveDefault
+        settings.fullScreen = .fullScreenDefault
         settings.app = .appDefault
         settings.scroll = .scrollDefault
-        settings.ocr = .ocrDefault
         manager.update(settings)
-        saveRecorder.config = settings.save
         pinRecorder.config = settings.pin
+        saveRecorder.config = settings.save
+        fullScreenRecorder.config = settings.fullScreen
         appRecorder.config = settings.app
         scrollRecorder.config = settings.scroll
-        ocrRecorder.config = settings.ocr
         render(manager.statuses)
     }
 

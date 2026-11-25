@@ -94,14 +94,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.hotkey = hotkey
         hotkey.onFirePin = { selection.begin(mode: .pin) }
         hotkey.onFireSave = { selection.begin(mode: .save) }
+        hotkey.onFireFullScreen = { [weak self, weak menuBar] in
+            guard let self else { return }
+            let mouse = NSEvent.mouseLocation
+            guard let screen = NSScreen.screens.first(where: { $0.frame.contains(mouse) }) else { return }
+            self.captureFullScreen(on: screen, menuBar: menuBar)
+        }
         hotkey.onFireApp = { selection.begin(mode: .app) }
         hotkey.onFireScroll = { selection.begin(mode: .scroll) }
-        hotkey.onFireOCR = { selection.begin(mode: .ocr) }
         // 配置一变就刷新菜单，录制期间（热键暂停注册）也一样，菜单显示的始终是最新键位。
         hotkey.onSettingsChange = { [weak menuBar] settings in
             menuBar?.updateHotkeys(
-                pin: settings.pin, save: settings.save, app: settings.app,
-                scroll: settings.scroll, ocr: settings.ocr)
+                pin: settings.pin, save: settings.save, fullScreen: settings.fullScreen,
+                app: settings.app, scroll: settings.scroll)
         }
         menuBar.onOpenSettings = { [weak self] in
             guard let self else { return }
@@ -122,9 +127,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBar.updateHotkeys(
             pin: hotkey.settings.pin,
             save: hotkey.settings.save,
+            fullScreen: hotkey.settings.fullScreen,
             app: hotkey.settings.app,
-            scroll: hotkey.settings.scroll,
-            ocr: hotkey.settings.ocr
+            scroll: hotkey.settings.scroll
         )
 
         installComplianceObservers()

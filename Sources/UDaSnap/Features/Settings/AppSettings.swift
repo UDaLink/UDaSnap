@@ -7,59 +7,59 @@ struct HotkeyConfig: Codable, Equatable {
     var keyCode: UInt32
     var carbonModifiers: UInt32
 
-    /// 贴图键默认值：⌃⇧4
+    /// 贴图键默认值：⌘F1
     static let pinDefault = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_4),
-        carbonModifiers: UInt32(controlKey | shiftKey)
+        keyCode: UInt32(kVK_F1),
+        carbonModifiers: UInt32(cmdKey)
     )
 
-    /// 截图键默认值：⌃⇧5（只保存，不贴图）
+    /// 框选截图默认值：⌘F2（只保存，不贴图）
     static let saveDefault = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_5),
-        carbonModifiers: UInt32(controlKey | shiftKey)
+        keyCode: UInt32(kVK_F2),
+        carbonModifiers: UInt32(cmdKey)
     )
 
-    /// 应用窗口截图键默认值：⌃⇧3
+    /// 全屏截图默认值：⌘F3
+    static let fullScreenDefault = HotkeyConfig(
+        keyCode: UInt32(kVK_F3),
+        carbonModifiers: UInt32(cmdKey)
+    )
+
+    /// 应用窗口截图默认值：⌘F4
     static let appDefault = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_3),
-        carbonModifiers: UInt32(controlKey | shiftKey)
-    )
-
-    /// 滚动截图键默认值：⌘F4
-    static let scrollDefault = HotkeyConfig(
         keyCode: UInt32(kVK_F4),
         carbonModifiers: UInt32(cmdKey)
     )
 
-    /// 文字提取（OCR）键默认值：⌃⇧2
-    static let ocrDefault = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_2),
-        carbonModifiers: UInt32(controlKey | shiftKey)
+    /// 滚动截图默认值：⌘F5
+    static let scrollDefault = HotkeyConfig(
+        keyCode: UInt32(kVK_F5),
+        carbonModifiers: UInt32(cmdKey)
     )
 
-    /// 固定备用键，不可录制：⌥⇧2 / ⌥⇧3 / ⌥⇧4 / ⌥⇧5 / ⌥⇧6
-    static let appBackup = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_3),
-        carbonModifiers: UInt32(optionKey | shiftKey)
-    )
-
+    /// 固定备用键，不可录制：⌥⇧1 / ⌥⇧2 / ⌥⇧3 / ⌥⇧4 / ⌥⇧5
     static let pinBackup = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_4),
+        keyCode: UInt32(kVK_ANSI_1),
         carbonModifiers: UInt32(optionKey | shiftKey)
     )
 
     static let saveBackup = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_5),
+        keyCode: UInt32(kVK_ANSI_2),
+        carbonModifiers: UInt32(optionKey | shiftKey)
+    )
+
+    static let fullScreenBackup = HotkeyConfig(
+        keyCode: UInt32(kVK_ANSI_3),
+        carbonModifiers: UInt32(optionKey | shiftKey)
+    )
+
+    static let appBackup = HotkeyConfig(
+        keyCode: UInt32(kVK_ANSI_4),
         carbonModifiers: UInt32(optionKey | shiftKey)
     )
 
     static let scrollBackup = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_6),
-        carbonModifiers: UInt32(optionKey | shiftKey)
-    )
-
-    static let ocrBackup = HotkeyConfig(
-        keyCode: UInt32(kVK_ANSI_2),
+        keyCode: UInt32(kVK_ANSI_5),
         carbonModifiers: UInt32(optionKey | shiftKey)
     )
 
@@ -139,36 +139,35 @@ struct HotkeyConfig: Codable, Equatable {
     }
 }
 
-/// App 配置。为了兼容老版本，贴图键仍落在 keyCode / carbonModifiers 上，
-/// 截图键新增 saveKeyCode / saveCarbonModifiers，应用窗口键新增
-/// appKeyCode / appCarbonModifiers；识字键新增 ocrKeyCode / ocrCarbonModifiers，
-/// 老文件缺字段时自动补默认值。
+/// App 配置。贴图键沿用历史字段 `keyCode` / `carbonModifiers`；
+/// 框选、全屏、应用窗口、滚动截图各有自己的字段。旧配置没有
+/// `fullScreenKeyCode` 时，视为升级前的配置，一次性重置为最新默认键位。
 struct AppSettings: Codable, Equatable {
     var pin: HotkeyConfig
     var save: HotkeyConfig
+    var fullScreen: HotkeyConfig
     var app: HotkeyConfig
     var scroll: HotkeyConfig
-    var ocr: HotkeyConfig
     var forceTap: Bool
 
     static let `default` = AppSettings(
         pin: .pinDefault,
         save: .saveDefault,
+        fullScreen: .fullScreenDefault,
         app: .appDefault,
         scroll: .scrollDefault,
-        ocr: .ocrDefault,
         forceTap: false
     )
 
     init(
-        pin: HotkeyConfig, save: HotkeyConfig, app: HotkeyConfig, scroll: HotkeyConfig, ocr: HotkeyConfig,
-        forceTap: Bool
+        pin: HotkeyConfig, save: HotkeyConfig, fullScreen: HotkeyConfig, app: HotkeyConfig,
+        scroll: HotkeyConfig, forceTap: Bool
     ) {
         self.pin = pin
         self.save = save
+        self.fullScreen = fullScreen
         self.app = app
         self.scroll = scroll
-        self.ocr = ocr
         self.forceTap = forceTap
     }
 
@@ -177,12 +176,12 @@ struct AppSettings: Codable, Equatable {
         case carbonModifiers
         case saveKeyCode
         case saveCarbonModifiers
+        case fullScreenKeyCode
+        case fullScreenCarbonModifiers
         case appKeyCode
         case appCarbonModifiers
         case scrollKeyCode
         case scrollCarbonModifiers
-        case ocrKeyCode
-        case ocrCarbonModifiers
         case forceTap
     }
 
@@ -200,6 +199,14 @@ struct AppSettings: Codable, Equatable {
             try c.decodeIfPresent(UInt32.self, forKey: .saveCarbonModifiers) ?? HotkeyConfig.saveDefault.carbonModifiers
         self.save = HotkeyConfig(keyCode: saveKey, carbonModifiers: saveMods)
 
+        let fullScreenKey =
+            try c.decodeIfPresent(UInt32.self, forKey: .fullScreenKeyCode)
+            ?? HotkeyConfig.fullScreenDefault.keyCode
+        let fullScreenMods =
+            try c.decodeIfPresent(UInt32.self, forKey: .fullScreenCarbonModifiers)
+            ?? HotkeyConfig.fullScreenDefault.carbonModifiers
+        self.fullScreen = HotkeyConfig(keyCode: fullScreenKey, carbonModifiers: fullScreenMods)
+
         let appKey = try c.decodeIfPresent(UInt32.self, forKey: .appKeyCode) ?? HotkeyConfig.appDefault.keyCode
         let appMods =
             try c.decodeIfPresent(UInt32.self, forKey: .appCarbonModifiers) ?? HotkeyConfig.appDefault.carbonModifiers
@@ -211,11 +218,6 @@ struct AppSettings: Codable, Equatable {
             ?? HotkeyConfig.scrollDefault.carbonModifiers
         self.scroll = HotkeyConfig(keyCode: scrollKey, carbonModifiers: scrollMods)
 
-        let ocrKey = try c.decodeIfPresent(UInt32.self, forKey: .ocrKeyCode) ?? HotkeyConfig.ocrDefault.keyCode
-        let ocrMods =
-            try c.decodeIfPresent(UInt32.self, forKey: .ocrCarbonModifiers) ?? HotkeyConfig.ocrDefault.carbonModifiers
-        self.ocr = HotkeyConfig(keyCode: ocrKey, carbonModifiers: ocrMods)
-
         self.forceTap = try c.decodeIfPresent(Bool.self, forKey: .forceTap) ?? false
     }
 
@@ -225,12 +227,12 @@ struct AppSettings: Codable, Equatable {
         try c.encode(pin.carbonModifiers, forKey: .carbonModifiers)
         try c.encode(save.keyCode, forKey: .saveKeyCode)
         try c.encode(save.carbonModifiers, forKey: .saveCarbonModifiers)
+        try c.encode(fullScreen.keyCode, forKey: .fullScreenKeyCode)
+        try c.encode(fullScreen.carbonModifiers, forKey: .fullScreenCarbonModifiers)
         try c.encode(app.keyCode, forKey: .appKeyCode)
         try c.encode(app.carbonModifiers, forKey: .appCarbonModifiers)
         try c.encode(scroll.keyCode, forKey: .scrollKeyCode)
         try c.encode(scroll.carbonModifiers, forKey: .scrollCarbonModifiers)
-        try c.encode(ocr.keyCode, forKey: .ocrKeyCode)
-        try c.encode(ocr.carbonModifiers, forKey: .ocrCarbonModifiers)
         try c.encode(forceTap, forKey: .forceTap)
     }
 }
@@ -244,22 +246,42 @@ enum SettingsFile {
 
     static func load() -> AppSettings {
         guard let data = try? Data(contentsOf: url),
-            let settings = try? JSONDecoder().decode(AppSettings.self, from: data)
+            let stored = try? JSONDecoder().decode(AppSettings.self, from: data)
         else {
             return .default
         }
-        // 旧版把标注热键写进配置；这里直接物理删除，不保留废弃字段。
-        if var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-            let removedKey = object.removeValue(forKey: "annotationKeyCode") != nil
-            let removedModifiers = object.removeValue(forKey: "annotationCarbonModifiers") != nil
-            if removedKey || removedModifiers,
+
+        // 这是加入全屏截图之前的旧配置：一次性重置为全新的默认键位。
+        // 当前版本还没有对外推广，不存在需要保留的历史自定义键位。
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return stored
+        }
+        let hasFullScreen = object["fullScreenKeyCode"] != nil && object["fullScreenCarbonModifiers"] != nil
+        if !hasFullScreen {
+            var migrated = stored
+            migrated.pin = .pinDefault
+            migrated.save = .saveDefault
+            migrated.fullScreen = .fullScreenDefault
+            migrated.app = .appDefault
+            migrated.scroll = .scrollDefault
+            save(migrated)
+            return migrated
+        }
+
+        // 已使用新配置，只清理废弃字段，不动用户的五组键位。
+        if var cleanObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            let removedAnnotationKey = cleanObject.removeValue(forKey: "annotationKeyCode") != nil
+            let removedAnnotationModifiers = cleanObject.removeValue(forKey: "annotationCarbonModifiers") != nil
+            let removedOCRKey = cleanObject.removeValue(forKey: "ocrKeyCode") != nil
+            let removedOCRModifiers = cleanObject.removeValue(forKey: "ocrCarbonModifiers") != nil
+            if removedAnnotationKey || removedAnnotationModifiers || removedOCRKey || removedOCRModifiers,
                 let clean = try? JSONSerialization.data(
-                    withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
+                    withJSONObject: cleanObject, options: [.prettyPrinted, .sortedKeys])
             {
                 try? clean.write(to: url, options: .atomic)
             }
         }
-        return settings
+        return stored
     }
 
     static func save(_ settings: AppSettings) {

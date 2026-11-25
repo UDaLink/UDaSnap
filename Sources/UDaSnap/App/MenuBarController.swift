@@ -3,7 +3,7 @@ import QuartzCore
 import ServiceManagement
 import UDaSnapCore
 
-/// 菜单栏入口：框选截图、全屏截图、应用窗口截图、滚动截图、截图并贴图、截图并翻译、文字提取（OCR）、文字提取-AI分析、偏好设置、目录、自启、权限状态、退出。
+/// 菜单栏入口：截图并贴图、框选截图、全屏截图、应用窗口截图、滚动截图、截图并翻译、文字提取（OCR）、文字提取-AI分析、偏好设置、目录、自启、权限状态、退出。
 @MainActor
 final class MenuBarController: NSObject, NSMenuDelegate {
 
@@ -35,14 +35,14 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     private var pinHotkey: HotkeyConfig = .pinDefault
     private var saveHotkey: HotkeyConfig = .saveDefault
+    private var fullScreenHotkey: HotkeyConfig = .fullScreenDefault
     private var appHotkey: HotkeyConfig = .appDefault
     private var scrollHotkey: HotkeyConfig = .scrollDefault
-    private var ocrHotkey: HotkeyConfig = .ocrDefault
     private var pinHotkeyTitle: String { pinHotkey.display }
     private var saveHotkeyTitle: String { saveHotkey.display }
+    private var fullScreenHotkeyTitle: String { fullScreenHotkey.display }
     private var appHotkeyTitle: String { appHotkey.display }
     private var scrollHotkeyTitle: String { scrollHotkey.display }
-    private var ocrHotkeyTitle: String { ocrHotkey.display }
 
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private var permissionItem: NSMenuItem?
@@ -58,18 +58,21 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         guard let button = statusItem.button else { return }
         button.image = BrandMark.statusImage()
         button.toolTip =
-            "UDaSnap · 截图 \(saveHotkeyTitle) / 应用 \(appHotkeyTitle) / 滚动 \(scrollHotkeyTitle) / 识字 \(ocrHotkeyTitle) / 贴图 \(pinHotkeyTitle)"
+            "UDaSnap · 贴图 \(pinHotkeyTitle) / 截图 \(saveHotkeyTitle) / 全屏 \(fullScreenHotkeyTitle) / 应用 \(appHotkeyTitle) / 滚动 \(scrollHotkeyTitle)"
         button.wantsLayer = true
     }
 
     func rebuildMenu() {
         let menu = NSMenu()
 
+        let pin = makeCaptureItem(title: "截图并贴图", config: pinHotkey, action: #selector(capturePin))
+        menu.addItem(pin)
+
         let save = makeCaptureItem(title: "框选截图", config: saveHotkey, action: #selector(captureNow))
         menu.addItem(save)
 
-        let full = NSMenuItem(title: "全屏截图", action: #selector(captureFullScreen), keyEquivalent: "")
-        full.target = self
+        let full = makeCaptureItem(
+            title: "全屏截图", config: fullScreenHotkey, action: #selector(captureFullScreen))
         menu.addItem(full)
 
         let app = makeCaptureItem(title: "应用窗口截图", config: appHotkey, action: #selector(captureApp))
@@ -78,14 +81,12 @@ final class MenuBarController: NSObject, NSMenuDelegate {
         let scroll = makeCaptureItem(title: "滚动截图", config: scrollHotkey, action: #selector(captureScroll))
         menu.addItem(scroll)
 
-        let pin = makeCaptureItem(title: "截图并贴图", config: pinHotkey, action: #selector(capturePin))
-        menu.addItem(pin)
-
         let translate = NSMenuItem(title: "截图并翻译", action: #selector(captureTranslate), keyEquivalent: "")
         translate.target = self
         menu.addItem(translate)
 
-        let ocr = makeCaptureItem(title: "文字提取（OCR）", config: ocrHotkey, action: #selector(captureOCR))
+        let ocr = NSMenuItem(title: "文字提取（OCR）", action: #selector(captureOCR), keyEquivalent: "")
+        ocr.target = self
         menu.addItem(ocr)
 
         let ai = NSMenuItem(title: "文字提取-AI分析", action: #selector(captureAI), keyEquivalent: "")
@@ -272,15 +273,16 @@ final class MenuBarController: NSObject, NSMenuDelegate {
 
     /// 快捷键变更后更新菜单、提示文案与工具提示。
     func updateHotkeys(
-        pin: HotkeyConfig, save: HotkeyConfig, app: HotkeyConfig, scroll: HotkeyConfig, ocr: HotkeyConfig
+        pin: HotkeyConfig, save: HotkeyConfig, fullScreen: HotkeyConfig, app: HotkeyConfig,
+        scroll: HotkeyConfig
     ) {
         pinHotkey = pin
         saveHotkey = save
+        fullScreenHotkey = fullScreen
         appHotkey = app
         scrollHotkey = scroll
-        ocrHotkey = ocr
         statusItem.button?.toolTip =
-            "UDaSnap · 截图 \(save.display) / 应用 \(app.display) / 滚动 \(scroll.display) / 识字 \(ocr.display) / 贴图 \(pin.display)"
+            "UDaSnap · 贴图 \(pin.display) / 截图 \(save.display) / 全屏 \(fullScreen.display) / 应用 \(app.display) / 滚动 \(scroll.display)"
         rebuildMenu()
     }
 

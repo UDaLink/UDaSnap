@@ -4,19 +4,18 @@ import Carbon
 import UDaSnapCore
 
 /// 全局热键。五套模式各有一个主键和一个固定备用键：
-/// - 贴图：主键可改（默认 ⌃⇧4），备用 ⌥⇧4
-/// - 截图：主键可改（默认 ⌃⇧5），备用 ⌥⇧5
-/// - 应用窗口：主键可改（默认 ⌃⇧3），备用 ⌥⇧3
-/// - 滚动截图：主键可改（默认 ⌘F4），备用 ⌥⇧6
-/// - 文字提取（OCR）：主键可改（默认 ⌃⇧2），备用 ⌥⇧2
+/// - 贴图：主键可改（默认 ⌘F1），备用 ⌥⇧1
+/// - 框选截图：主键可改（默认 ⌘F2），备用 ⌥⇧2
+/// - 全屏截图：主键可改（默认 ⌘F3），备用 ⌥⇧3
+/// - 应用窗口：主键可改（默认 ⌘F4），备用 ⌥⇧4
+/// - 滚动截图：主键可改（默认 ⌘F5），备用 ⌥⇧5
 ///
 /// 主键走 Carbon `RegisterEventHotKey`，不需要额外权限。
 /// 强力模式（`forceTap`）用一个 `CGEvent` tap 同时匹配五套主键，
 /// 在系统分发之前把按键吞掉，代价是需要「辅助功能」授权。
 /// 备用键始终走 Carbon，保证强力模式失效时还有退路。
 ///
-/// 注意 F1/F2 这类系统功能键在驱动层就被系统接管，任何 app 都抢不到，
-/// 只能靠用户在系统设置里改为标准功能键、或改用 fn 组合。
+/// F1~F5 裸按会被系统功能键接管；这里统一带 ⌘ 修饰，避免和系统亮度/调度中心冲突。
 @MainActor
 final class HotkeyManager {
 
@@ -31,14 +30,14 @@ final class HotkeyManager {
     struct Statuses: Equatable {
         var pin: Status = .carbonFailed(-1)
         var save: Status = .carbonFailed(-1)
+        var fullScreen: Status = .carbonFailed(-1)
         var app: Status = .carbonFailed(-1)
         var scroll: Status = .carbonFailed(-1)
-        var ocr: Status = .carbonFailed(-1)
         var pinAlt: OSStatus = -1
         var saveAlt: OSStatus = -1
+        var fullScreenAlt: OSStatus = -1
         var appAlt: OSStatus = -1
         var scrollAlt: OSStatus = -1
-        var ocrAlt: OSStatus = -1
     }
 
     private(set) var settings: AppSettings
@@ -46,23 +45,23 @@ final class HotkeyManager {
 
     var onFirePin: (() -> Void)?
     var onFireSave: (() -> Void)?
+    var onFireFullScreen: (() -> Void)?
     var onFireApp: (() -> Void)?
     var onFireScroll: (() -> Void)?
-    var onFireOCR: (() -> Void)?
     var onStatusChange: ((Statuses) -> Void)?
     /// 配置一变就通知，和注册状态无关；菜单栏用它同步显示新的键位。
     var onSettingsChange: ((AppSettings) -> Void)?
 
     private var pinRef: EventHotKeyRef?
     private var saveRef: EventHotKeyRef?
+    private var fullScreenRef: EventHotKeyRef?
     private var appRef: EventHotKeyRef?
     private var scrollRef: EventHotKeyRef?
-    private var ocrRef: EventHotKeyRef?
     private var pinAltRef: EventHotKeyRef?
     private var saveAltRef: EventHotKeyRef?
+    private var fullScreenAltRef: EventHotKeyRef?
     private var appAltRef: EventHotKeyRef?
     private var scrollAltRef: EventHotKeyRef?
-    private var ocrAltRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
     private var eventTap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -73,12 +72,12 @@ final class HotkeyManager {
     private static let pinAltID: UInt32 = 2
     private static let saveID: UInt32 = 4
     private static let saveAltID: UInt32 = 5
+    private static let fullScreenID: UInt32 = 12
+    private static let fullScreenAltID: UInt32 = 13
     private static let appID: UInt32 = 6
     private static let appAltID: UInt32 = 7
     private static let scrollID: UInt32 = 8
     private static let scrollAltID: UInt32 = 9
-    private static let ocrID: UInt32 = 10
-    private static let ocrAltID: UInt32 = 11
 
     init(settings: AppSettings = SettingsFile.load()) {
         self.settings = settings
@@ -125,15 +124,15 @@ final class HotkeyManager {
             UnregisterEventHotKey(ref)
             scrollAltRef = nil
         }
-        if let ref = ocrAltRef {
+        if let ref = fullScreenAltRef {
             UnregisterEventHotKey(ref)
-            ocrAltRef = nil
+            fullScreenAltRef = nil
         }
         statuses.pinAlt = -1
         statuses.saveAlt = -1
+        statuses.fullScreenAlt = -1
         statuses.appAlt = -1
         statuses.scrollAlt = -1
-        statuses.ocrAlt = -1
         stopTap()
     }
 
@@ -178,28 +177,29 @@ final class HotkeyManager {
             if startTap() {
                 statuses.pin = .tapRunning
                 statuses.save = .tapRunning
+                statuses.fullScreen = .tapRunning
                 statuses.app = .tapRunning
                 statuses.scroll = .tapRunning
-                statuses.ocr = .tapRunning
             } else {
                 statuses.pin = .tapNoAccessibility
                 statuses.save = .tapNoAccessibility
+                statuses.fullScreen = .tapNoAccessibility
                 statuses.app = .tapNoAccessibility
                 statuses.scroll = .tapNoAccessibility
-                statuses.ocr = .tapNoAccessibility
             }
         } else {
             stopTap()
             let pinStatus = registerCarbon(settings.pin, id: Self.pinID, ref: &pinRef)
             let saveStatus = registerCarbon(settings.save, id: Self.saveID, ref: &saveRef)
+            let fullScreenStatus = registerCarbon(
+                settings.fullScreen, id: Self.fullScreenID, ref: &fullScreenRef)
             let appStatus = registerCarbon(settings.app, id: Self.appID, ref: &appRef)
             let scrollStatus = registerCarbon(settings.scroll, id: Self.scrollID, ref: &scrollRef)
-            let ocrStatus = registerCarbon(settings.ocr, id: Self.ocrID, ref: &ocrRef)
             statuses.pin = pinStatus == noErr ? .carbonOK : .carbonFailed(pinStatus)
             statuses.save = saveStatus == noErr ? .carbonOK : .carbonFailed(saveStatus)
+            statuses.fullScreen = fullScreenStatus == noErr ? .carbonOK : .carbonFailed(fullScreenStatus)
             statuses.app = appStatus == noErr ? .carbonOK : .carbonFailed(appStatus)
             statuses.scroll = scrollStatus == noErr ? .carbonOK : .carbonFailed(scrollStatus)
-            statuses.ocr = ocrStatus == noErr ? .carbonOK : .carbonFailed(ocrStatus)
         }
 
         onStatusChange?(statuses)
@@ -235,15 +235,16 @@ final class HotkeyManager {
             UnregisterEventHotKey(ref)
             scrollAltRef = nil
         }
-        if let ref = ocrAltRef {
+        if let ref = fullScreenAltRef {
             UnregisterEventHotKey(ref)
-            ocrAltRef = nil
+            fullScreenAltRef = nil
         }
         statuses.pinAlt = registerCarbon(.pinBackup, id: Self.pinAltID, ref: &pinAltRef)
         statuses.saveAlt = registerCarbon(.saveBackup, id: Self.saveAltID, ref: &saveAltRef)
+        statuses.fullScreenAlt = registerCarbon(
+            .fullScreenBackup, id: Self.fullScreenAltID, ref: &fullScreenAltRef)
         statuses.appAlt = registerCarbon(.appBackup, id: Self.appAltID, ref: &appAltRef)
         statuses.scrollAlt = registerCarbon(.scrollBackup, id: Self.scrollAltID, ref: &scrollAltRef)
-        statuses.ocrAlt = registerCarbon(.ocrBackup, id: Self.ocrAltID, ref: &ocrAltRef)
     }
 
     private func unregisterPrimary() {
@@ -263,9 +264,9 @@ final class HotkeyManager {
             UnregisterEventHotKey(ref)
             scrollRef = nil
         }
-        if let ref = ocrRef {
+        if let ref = fullScreenRef {
             UnregisterEventHotKey(ref)
-            ocrRef = nil
+            fullScreenRef = nil
         }
     }
 
@@ -301,12 +302,12 @@ final class HotkeyManager {
                     DispatchQueue.main.async { manager.onFirePin?() }
                 case HotkeyManager.saveID, HotkeyManager.saveAltID:
                     DispatchQueue.main.async { manager.onFireSave?() }
+                case HotkeyManager.fullScreenID, HotkeyManager.fullScreenAltID:
+                    DispatchQueue.main.async { manager.onFireFullScreen?() }
                 case HotkeyManager.appID, HotkeyManager.appAltID:
                     DispatchQueue.main.async { manager.onFireApp?() }
                 case HotkeyManager.scrollID, HotkeyManager.scrollAltID:
                     DispatchQueue.main.async { manager.onFireScroll?() }
-                case HotkeyManager.ocrID, HotkeyManager.ocrAltID:
-                    DispatchQueue.main.async { manager.onFireOCR?() }
                 default:
                     break
                 }
@@ -348,16 +349,16 @@ final class HotkeyManager {
                 DispatchQueue.main.async { manager.onFireSave?() }
                 return nil
             }
+            if manager.matches(event, config: manager.settings.fullScreen) {
+                DispatchQueue.main.async { manager.onFireFullScreen?() }
+                return nil
+            }
             if manager.matches(event, config: manager.settings.app) {
                 DispatchQueue.main.async { manager.onFireApp?() }
                 return nil
             }
             if manager.matches(event, config: manager.settings.scroll) {
                 DispatchQueue.main.async { manager.onFireScroll?() }
-                return nil
-            }
-            if manager.matches(event, config: manager.settings.ocr) {
-                DispatchQueue.main.async { manager.onFireOCR?() }
                 return nil
             }
             return Unmanaged.passUnretained(event)
